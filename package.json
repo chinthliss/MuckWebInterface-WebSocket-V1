@@ -1,0 +1,24 @@
+{
+  "name": "muckwebinterface-websocket",
+  "version": "1.0.0",
+  "description": "Encapsulates the functionality for a JS client to communication to a MUCK over a WebSocket.",
+  "main": "dist/index.js",
+  "scripts": {
+    "test": "mocha --require @babel/register",
+    "dev": "webpack --mode development",
+    "servedev": "webpack-dev-server --mode development",
+    "build": "webpack --mode production"
+  },
+  "author": "Chinthliss",
+  "license": "ISC",
+  "devDependencies": {
+    "@babel/core": "^7.18.5",
+    "@babel/preset-env": "^7.18.2",
+    "@babel/register": "^7.17.7",
+    "babel-loader": "^8.2.5",
+    "chai": "^4.3.6",
+    "mocha": "^10.0.0",
+    "webpack": "^5.73.0",
+    "webpack-cli": "^4.10.0"
+  }
+}
