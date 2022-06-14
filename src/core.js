@@ -76,9 +76,17 @@ export default class Core {
     channels = {};
 
     constructor() {
-        let context = typeof (window) !== 'undefined' ? window : typeof (global) !== 'undefined' ? global : {};
-        let url;
+        // Previously this was a test to find something in order of self, window, global
+        let context = globalThis;
+        let environment = "production";
+        if (typeof process !== 'undefined' && process?.env?.NODE_ENV) environment = process.env.NODE_ENV;
 
+        // Figure out whether we have local storage.
+        this.localStorageAvailable = 'localStorage' in context;
+        if (this.localStorageAvailable && localStorage.getItem('mwiLive-debug') === 'y') this.debug = true;
+
+        // Calculate where we're connecting to
+        let url;
         if (context.location) {
             url = (location.protocol === 'https:' ? 'wss://' : 'ws://') // Ensure same level of security as page
                 + location.hostname + "/liveconnect/ws";
@@ -86,27 +94,22 @@ export default class Core {
             //No context.location means we're running under a test environment. Hopefully!
             url = "http://local.test";
         }
-
         // Overrides for local testing
-        if (process.env.NODE_ENV === 'development') {
+        if (environment === 'development') {
             url = "ws://test.flexiblesurvival.com/liveconnect/ws";
         }
 
+        // Add parameters to Url
         url += '?protocolVersion=' + this.protocolVersion;
 
-        // Wrapped in a try/catch because of an issue with an older version of Firefox
-        try {
-            this.localStorageAvailable = 'localStorage' in window && window['localStorage'] !== null;
-            if (localStorage.getItem('mwiLive-debug') === 'y') this.debug = true;
-        } catch (e) {
-        }
-
-        if (process.env.NODE_ENV === 'test') this.connection = new ConnectionFaker(url, this);
+        // Work out which connection we're using
+        if (environment === 'test') this.connection = new ConnectionFaker(url, this);
         if (!this.connection) {
             if ("WebSocket" in context) this.connection = new ConnectionWebSocket(url, this);
         }
-
         if (!this.connection) throw "Failed to find any usable connection method";
+
+        // And start the connection up
         //this.startHttpStream();
     }
 
