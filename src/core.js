@@ -9,14 +9,27 @@ export default class Core {
     /**
      * Message in the form MSG<Channel>,<Message>,<Data>
      * @type {RegExp}
+     * @readonly
      */
     static msgRegExp = /MSG(\w*),(\w*),(.*)/;
 
     /**
      * System message in the form SYS<Message>,<Data>
      * @type {RegExp}
+     * @readonly
      */
     static sysRegExp = /SYS(\w*),(.*)/;
+
+    /**
+     * @enum {string}
+     * @readonly
+     */
+    static connectionStates = {
+        connecting: 'connecting',
+        login: 'login',
+        connected: 'connected',
+        failed: 'failed' // For when no more attempts will happen
+    }
 
     /**
      * @type {boolean}
@@ -24,9 +37,9 @@ export default class Core {
     localStorageAvailable = false; // We'll set this properly in the constructor
 
     /**
-     * @type {string}
+     * @type {(connectionStates)}
      */
-    connectionStatus = "connecting";
+    connectionStatus = connectionStates.connecting;
 
     /**
      * @type {string}
@@ -113,6 +126,10 @@ export default class Core {
         //this.startHttpStream();
     }
 
+    /**
+     * Enables or disables printing debug information in the console
+     * @param {boolean} trueOrFalse
+     */
     setDebug(trueOrFalse) {
         if (!this.localStorageAvailable) {
             console.log("Can't set debug preference - local storage is not available.");
@@ -129,26 +146,29 @@ export default class Core {
         }
     }
 
-    transmitString(string) {
-        if (string.length > 30000) {
-            console.log("LiveConnection had to abort sending a strong - can't send strings over 30,000 characters.");
-            return;
-        }
-        this.connection.sendString(string);
-    };
-
+    /**
+     * Send a message over the specified channel. Data will be parsed to JSON.
+     * @param {string} channel
+     * @param {string} message
+     * @param {any} data
+     */
     sendMessage(channel, message, data) {
         if (this.debug) console.log("[ >> " + channel + "." + message + "] ", data);
         let parsedData = (typeof data !== 'undefined' ? JSON.stringify(data) : '');
         let parsedMessage = ["MSG", channel, ',', message, ',', parsedData].join('');
-        this.transmitString(parsedMessage);
+        this.connection.sendString(parsedMessage);
     };
 
+    /**
+     * Send a message without a channel. Data will be parsed to JSON.
+     * @param {string} message
+     * @param {any} data
+     */
     sendSystemMessage(message, data) {
         if (this.debug) console.log("[ >> " + message + "] ", data);
         let parsedData = (typeof data !== 'undefined' ? JSON.stringify(data) : '');
         let parsedMessage = ["SYS", message, ',', parsedData].join('');
-        this.transmitString(parsedMessage);
+        this.connection.sendString(parsedMessage);
     };
 
     /**
@@ -262,7 +282,7 @@ export default class Core {
     }
 
     /**
-     *
+     * Handles any incoming string, whether it's a regular message or system message
      * @param {string} incoming
      */
     receivedString(incoming) {
@@ -312,21 +332,6 @@ export default class Core {
         console.log("MwiLive ERROR: Don't know what to do with the string: " + incoming);
     };
 
-    /**
-     *
-     * @param {string} channelName
-     * @param {string} message
-     * @param data
-     */
-    receivedMessage(channelName, message, data) {
-        let channel = this.channels[channelName];
-        if (!(channel instanceof Channel)) {
-            if (this.debug) console.log("Received message on channel we're not aware of! Channel = " + channelName);
-            return;
-        }
-        channel.receiveMessage.bind(channel)(message, data);
-    };
-
     startHttpStream() {
         if (this.debug) console.log("Starting HTTPStream connection to: " + this.httpUrl);
         this.session = null; //Only upgrades can resume a session now
@@ -338,31 +343,6 @@ export default class Core {
         }
         this.connection = new ConnectionHttpStream(this.httpUrl, this);
         this.connection.connect();
-    };
-
-    startWebSocketUpgrade() {
-        if (!this.webSocketsAvailable) {
-            if (this.debug) console.log("Disregarded WebSocket upgrade attempt due to them being disabled or unavailable.");
-            return;
-        }
-        if (this.session === null) {
-            console.log("MwiLive Error: Attempt to start a websocket when we haven't got a session.");
-            return;
-        }
-        if (this.upgradeConnection !== null) {
-            this.upgradeConnection.disconnect();
-        }
-        if (this.debug) console.log("Starting WebSocket connection to: " + this.webSocketUrl);
-        this.upgradeConnection = new WebSocket(this.webSocketUrl, this);
-        this.upgradeConnection.connect();
-    };
-
-    completeWebSocketUpgrade() {
-        if (this.debug) console.log("Finalizing WebSocket upgrade attempt and making it active connection.");
-        this.connection.disconnectAndShutdown();
-        this.connection = this.upgradeConnection;
-        this.upgradeConnection = null;
-        this.dispatchStatusChanged('connected');
     };
 
     websocketFailed() {
@@ -380,8 +360,8 @@ export default class Core {
 
     /**
      *
-     * @param message
-     * @param data
+     * @param {string} message
+     * @param {any} data
      */
     receivedSystemMessage(message, data) {
         switch (message) {
@@ -401,6 +381,21 @@ export default class Core {
             default:
                 console.log("MwiLive ERROR: Unrecognized system message received: " + message);
         }
+    };
+
+    /**
+     *
+     * @param {string} channelName
+     * @param {string} message
+     * @param data
+     */
+    receivedMessage(channelName, message, data) {
+        let channel = this.channels[channelName];
+        if (!(channel instanceof Channel)) {
+            if (this.debug) console.log("Received message on channel we're not aware of! Channel = " + channelName);
+            return;
+        }
+        channel.receiveMessage.bind(channel)(message, data);
     };
 
     /**
@@ -428,19 +423,12 @@ export default class Core {
     };
 
     /**
-     * Returns the present connection state. Either connected or disconnected.
-     * @returns {string}
+     * Returns the present connection state.
+     * One of: connecting, login, connected, failed
+     * @returns {connectionStates}
      */
     getConnectionState() {
         return this.connectionStatus;
-    };
-
-    /**
-     * Returns connection type. Either WebSocket or HttpStream
-     * @returns {string}
-     */
-    getConnectionType() {
-        return (this.connection instanceof WebSocket ? "WebSocket" : "HttpStream");
     };
 
 }
