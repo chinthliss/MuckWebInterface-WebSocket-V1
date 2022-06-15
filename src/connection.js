@@ -17,20 +17,20 @@ export default class Connection {
     core;
 
     /**
-     * @param {string} url URL to connect to
+     * @param {Object} context Either window, global or self. The object holding the environmental globals.
      * @param {Core} core Object to send notifications and share properties.
      */
-    constructor(url, core) {
-        if (typeof url !== 'string' || url === '') throw "Attempt to create connection with no url specified.";
-        if (typeof core !== 'object') throw "Attempt to create connection with core dependency not passed.";
-        this.url = url;
+    constructor(context, core) {
+        if (typeof context !== 'object') throw "Missing or incorrect argument - context";
+        if (typeof core !== 'object') throw "Missing or incorrect argument - core";
         this.core = core;
+        // Context is intended to be used by connections overriding this one.
     }
 
     maybePropagateSessionChange(newSession) {
         if (this.core.session !== newSession) {
             this.core.session = newSession;
-            this.core.SessionChanged(newSession);
+            this.core.updateAndDispatchSession(newSession);
         }
     }
 
@@ -39,7 +39,7 @@ export default class Connection {
         if (this.core.playerDbref !== newPlayerDbref || this.core.playerName !== newPlayerName) {
             this.core.playerDbref = newPlayerDbref;
             this.core.playerName = newPlayerName;
-            this.core.PlayerChanged(newPlayerDbref, newPlayerName);
+            this.core.updateAndDispatchPlayerChanged(newPlayerDbref, newPlayerName);
         }
     }
 

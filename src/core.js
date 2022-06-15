@@ -4,7 +4,6 @@ import ConnectionFaker from "./connection-faker.js";
 
 export default class Core {
 
-    static protocolVersion = 1;
 
     /**
      * Message in the form MSG<Channel>,<Message>,<Data>
@@ -39,12 +38,12 @@ export default class Core {
     /**
      * @type {(connectionStates)}
      */
-    connectionStatus = connectionStates.connecting;
+    connectionStatus;
 
     /**
      * @type {string}
      */
-    session = null;
+    session = "";
 
     /**
      * @type {number}
@@ -96,34 +95,17 @@ export default class Core {
 
         // Figure out whether we have local storage.
         this.localStorageAvailable = 'localStorage' in context;
-        if (this.localStorageAvailable && localStorage.getItem('mwiLive-debug') === 'y') this.debug = true;
-
-        // Calculate where we're connecting to
-        let url;
-        if (context.location) {
-            url = (location.protocol === 'https:' ? 'wss://' : 'ws://') // Ensure same level of security as page
-                + location.hostname + "/liveconnect/ws";
-        } else {
-            //No context.location means we're running under a test environment. Hopefully!
-            url = "http://local.test";
-        }
-        // Overrides for local testing
-        if (environment === 'development') {
-            url = "ws://test.flexiblesurvival.com/liveconnect/ws";
-        }
-
-        // Add parameters to Url
-        url += '?protocolVersion=' + this.protocolVersion;
+        if (this.localStorageAvailable && localStorage.getItem('mwiWebsocket-debug') === 'y') this.debug = true;
 
         // Work out which connection we're using
-        if (environment === 'test') this.connection = new ConnectionFaker(url, this);
+        if (environment === 'test') this.connection = new ConnectionFaker(context, this);
         if (!this.connection) {
-            if ("WebSocket" in context) this.connection = new ConnectionWebSocket(url, this);
+            if ("WebSocket" in context) this.connection = new ConnectionWebSocket(context, this);
         }
         if (!this.connection) throw "Failed to find any usable connection method";
 
         // And start the connection up
-        //this.startHttpStream();
+        this.startConnection();
     }
 
     /**
@@ -138,11 +120,11 @@ export default class Core {
         if (trueOrFalse) {
             this.debug = true;
             console.log("Console logging enabled.");
-            localStorage.setItem('mwiLive-debug', 'y');
+            localStorage.setItem('mwiWebsocket-debug', 'y');
         } else {
             this.debug = false;
             console.log("Console logging disabled.");
-            localStorage.removeItem('mwiLive-debug');
+            localStorage.removeItem('mwiWebsocket-debug');
         }
     }
 
@@ -172,9 +154,9 @@ export default class Core {
     };
 
     /**
-     * Returns a channel object to talk to a channel, joining it if required.
+     * Returns a channel interface to talk to a channel, joining it if required.
      * @param {string} channelName
-     * @returns {Channel}
+     * @returns {ChannelInterface}
      */
     channel(channelName) {
         if (channelName in this.channels) return this.channels[channelName].interface;
@@ -186,50 +168,14 @@ export default class Core {
         return newChannel.interface;
     };
 
-    /**
-     * Called by present connection
-     * @param {string} newSession The New session
-     */
-    SessionChanged(newSession) {
-        if (this.debug) console.log("Session changed to " + newSession);
-        if (this.session) { //Maybe send join requests?
-            let channelsToJoin = [];
-            for (let channel in this.channels) {
-                if (this.channels.hasOwnProperty(channel) && !this.channels[channel].joined) {
-                    channelsToJoin.push(channel);
-                }
-            }
-            if (channelsToJoin.length > 0) this.sendSystemMessage('joinChannels', channelsToJoin);
-        }
-    }
-
-    /**
-     * Called by present connection
-     * @param {string} newDbref New Dbref for player
-     * @param {string} newName New name for the player
-     */
-    PlayerChanged(newDbref, newName) {
-        if (this.debug) console.log("Player changed: " + newName + '(' + newDbref + ')');
-        for (let i = 0, maxi = this.playerChangedHandlers.length; i < maxi; i++) {
-            try {
-                this.playerChangedHandlers[i](newDbref, newName);
-            } catch (e) {
-            }
-        }
-    }
+    //region Event Processing
 
     /**
      *
-     * @param {string} error
+     * @param {function} callback
      */
-    dispatchError(error) {
-        console.log("MwiLive Error reported: " + error);
-        for (let i = 0, maxi = this.errorHandlers.length; i < maxi; i++) {
-            try {
-                this.errorHandlers[i](error);
-            } catch (e) {
-            }
-        }
+    onPlayerChanged(callback) {
+        this.playerChangedHandlers.push(callback);
     }
 
     /**
@@ -239,22 +185,6 @@ export default class Core {
     onError(callback) {
         this.errorHandlers.push(callback);
     }
-
-    /**
-     * Called by present connection
-     * @param {string} newStatus The New status
-     */
-    dispatchStatusChanged(newStatus) {
-        if (this.connectionStatus === newStatus) return;
-        if (this.debug) console.log('Connection status changed to ' + newStatus + ' (from ' + this.connectionStatus + ')');
-        this.connectionStatus = newStatus;
-        for (let i = 0, maxi = this.statusChangedHandlers.length; i < maxi; i++) {
-            try {
-                this.statusChangedHandlers[i](newStatus);
-            } catch (e) {
-            }
-        }
-    };
 
     /**
      *
@@ -273,13 +203,69 @@ export default class Core {
         }.bind(this));
     }
 
+    //endregion Event Handlers
+
+    /**
+     * Called by present connection
+     * @param {string} newSession The New session
+     */
+    updateAndDispatchSession(newSession) {
+        if (this.debug) console.log("Session changed to " + newSession);
+        if (this.session) { //Maybe send join requests?
+            let channelsToJoin = [];
+            for (let channel in this.channels) {
+                if (this.channels.hasOwnProperty(channel) && !this.channels[channel].joined) {
+                    channelsToJoin.push(channel);
+                }
+            }
+            if (channelsToJoin.length > 0) this.sendSystemMessage('joinChannels', channelsToJoin);
+        }
+    }
+
+    /**
+     * Called by present connection
+     * @param {string} newDbref New Dbref for player
+     * @param {string} newName New name for the player
+     */
+    updateAndDispatchPlayerChanged(newDbref, newName) {
+        if (this.debug) console.log("Player changed: " + newName + '(' + newDbref + ')');
+        for (let i = 0, maxi = this.playerChangedHandlers.length; i < maxi; i++) {
+            try {
+                this.playerChangedHandlers[i](newDbref, newName);
+            } catch (e) {
+            }
+        }
+    }
+
     /**
      *
-     * @param {function} callback
+     * @param {string} error
      */
-    onPlayerChanged(callback) {
-        this.playerChangedHandlers.push(callback);
+    dispatchError(error) {
+        console.log("Mwi-Websocket Error reported: " + error);
+        for (let i = 0, maxi = this.errorHandlers.length; i < maxi; i++) {
+            try {
+                this.errorHandlers[i](error);
+            } catch (e) {
+            }
+        }
     }
+
+    /**
+     * Called by present connection
+     * @param {connectionStates} newStatus The New status
+     */
+    updateAndDispatchStatus(newStatus) {
+        if (this.connectionStatus === newStatus) return;
+        if (this.debug) console.log('Connection status changed to ' + newStatus + ' (from ' + this.connectionStatus + ')');
+        this.connectionStatus = newStatus;
+        for (let i = 0, maxi = this.statusChangedHandlers.length; i < maxi; i++) {
+            try {
+                this.statusChangedHandlers[i](newStatus);
+            } catch (e) {
+            }
+        }
+    };
 
     /**
      * Handles any incoming string, whether it's a regular message or system message
@@ -291,15 +277,15 @@ export default class Core {
             let channel, message, data;
             try {
                 let dataAsJson;
-                [, channel, message, dataAsJson] = incoming.match(this.msgRegExp);
+                [, channel, message, dataAsJson] = incoming.match(Core.msgRegExp);
                 data = (dataAsJson === '' ? null : JSON.parse(dataAsJson));
             } catch (e) {
-                console.log("MwiLive ERROR: Failed to parse string as incoming message: " + incoming);
-                console.log("MwiLive Copy of actual error: ", e);
+                console.log("Mwi-Websocket ERROR: Failed to parse string as incoming message: " + incoming);
+                console.log("Mwi-Websocket Copy of actual error: ", e);
                 return;
             }
             if (message === '') {
-                console.log("MwiLive ERROR: Incoming message had an empty message: " + incoming);
+                console.log("Mwi-Websocket ERROR: Incoming message had an empty message: " + incoming);
                 return;
             }
             if (this.debug) console.log("[ << " + channel + "." + message + "] ", data);
@@ -310,14 +296,14 @@ export default class Core {
             let message, data;
             try {
                 let dataAsJson;
-                [, message, dataAsJson] = incoming.match(this.sysRegExp);
+                [, message, dataAsJson] = incoming.match(Core.sysRegExp);
                 data = (dataAsJson === '' ? null : JSON.parse(dataAsJson));
             } catch (e) {
-                console.log("MwiLive ERROR: Failed to parse string as incoming system message: " + incoming);
+                console.log("Mwi-Websocket ERROR: Failed to parse string as incoming system message: " + incoming);
                 return;
             }
             if (message === '') {
-                console.log("MwiLive ERROR: Incoming system message had an empty message: " + incoming);
+                console.log("Mwi-Websocket ERROR: Incoming system message had an empty message: " + incoming);
                 return;
             }
             if (this.debug) console.log("[ << " + message + "] ", data);
@@ -325,37 +311,11 @@ export default class Core {
             return;
         }
         if (incoming === 'upgraded') {
-            if (this.debug) console.log("MwiLive received notification on HttpStream that upgrade has occured.");
+            if (this.debug) console.log("Mwi-Websocket received notification on HttpStream that upgrade has occured.");
             //We don't actually do anything here, the websocket will also receive this notification and react.
             return;
         }
-        console.log("MwiLive ERROR: Don't know what to do with the string: " + incoming);
-    };
-
-    startHttpStream() {
-        if (this.debug) console.log("Starting HTTPStream connection to: " + this.httpUrl);
-        this.session = null; //Only upgrades can resume a session now
-        for (let channel in this.channels) {
-            if (this.channels.hasOwnProperty(channel)) {
-                //Channels will be re-joined but we need to let them know to buffer until the muck acknowledges them.
-                this.channels[channel].joined = false;
-            }
-        }
-        this.connection = new ConnectionHttpStream(this.httpUrl, this);
-        this.connection.connect();
-    };
-
-    websocketFailed() {
-        if (this.upgradeConnection !== null) {
-            if (this.debug) console.log("Clearing up failed WebSocket upgrade attempt.");
-            this.upgradeConnection.disconnect();
-            this.upgradeConnection = null;
-        }
-        if (this.connection instanceof WebSocket) {
-            if (this.debug) console.log("Dropping disconnected WebSocket and switching back to HttpStream.");
-            this.connection.disconnect();
-            this.startHttpStream();
-        }
+        console.log("Mwi-Websocket ERROR: Don't know what to do with the string: " + incoming);
     };
 
     /**
@@ -367,19 +327,16 @@ export default class Core {
         switch (message) {
             case 'channel':
                 if (data in this.channels) this.channels[data].joined = true;
-                else console.log("MwiLive ERROR: Muck acknowledged joining a channel we weren't aware of! Channel: " + data);
+                else console.log("Mwi-Websocket ERROR: Muck acknowledged joining a channel we weren't aware of! Channel: " + data);
                 break;
             case 'test':
-                console.log("MwiLive Test message received. Data=", data);
+                console.log("Mwi-Websocket Test message received. Data=", data);
                 break;
             case 'ping': //This is actually http only, websockets do it at a lower level
                 this.sendSystemMessage('pong', data);
                 break;
-            case 'upgrade':
-                this.startWebSocketUpgrade();
-                break;
             default:
-                console.log("MwiLive ERROR: Unrecognized system message received: " + message);
+                console.log("Mwi-Websocket ERROR: Unrecognized system message received: " + message);
         }
     };
 
@@ -429,6 +386,22 @@ export default class Core {
      */
     getConnectionState() {
         return this.connectionStatus;
+    };
+
+    /**
+     * Starts the attempts to connect.
+     */
+    startConnection() {
+        if (this.debug) console.log("Starting connection.");
+        this.updateAndDispatchStatus(Core.connectionStates.connecting);
+        this.session = "";
+        for (let channel in this.channels) {
+            if (this.channels.hasOwnProperty(channel)) {
+                //Channels will be re-joined but we need to let them know to buffer until the muck acknowledges them.
+                this.channels[channel].joined = false;
+            }
+        }
+        this.connection.connect();
     };
 
 }

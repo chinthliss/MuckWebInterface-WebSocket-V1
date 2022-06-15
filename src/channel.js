@@ -1,5 +1,5 @@
 import ChannelInterface from "./channel-interface.js";
-import Core from "./channel-interface.js";
+import Core from "./core.js";
 
 /**
  * Functionality for an individual channel
@@ -33,6 +33,12 @@ export default class Channel {
      * @type {ChannelInterface}
      */
     interface;
+
+    /**
+     * Used so we can capture and buffer messages to a channel that are sent before the join command completes
+     * @type {boolean}
+     */
+    joined = false;
 
     /**
      * @param {string} channelName

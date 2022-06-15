@@ -4,6 +4,13 @@ import Connection from "./connection";
  * Handles the underlying websocket connection
  */
 export default class ConnectionWebSocket extends Connection {
+
+    /**
+     * In case we're outdated and need a refresh.
+     * @type {number}
+     */
+    static protocolVersion = 1;
+
     /**
      * @type {WebSocket}
      */
@@ -24,12 +31,25 @@ export default class ConnectionWebSocket extends Connection {
      */
     ensureConnectionTimeout = -1;
 
-    /**
-     * @param {string} url
-     * @param {Core} core
-     */
-    constructor(url, core) {
-        super(url, core);
+    constructor(context, core) {
+        super(context, core);
+
+        // Calculate where we're connecting to
+        if (context.location) {
+            this.url = (location.protocol === 'https:' ? 'wss://' : 'ws://') // Ensure same level of security as page
+                + location.hostname + "/liveconnect/ws";
+        } else {
+            // As of writing, the only context without a location should be testing which should be us
+            throw "No location in provided context!"
+        }
+        // Overrides for local testing
+        if (environment === 'development') {
+            this.url = "ws://test.flexiblesurvival.com/liveconnect/ws";
+        }
+
+        // Add parameters to Url
+        this.url += '?protocolVersion=' + this.protocolVersion;
+
     }
 
     connect() {

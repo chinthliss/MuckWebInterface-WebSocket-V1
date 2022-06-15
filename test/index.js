@@ -12,5 +12,10 @@ describe('Library', function () {
             expect(websocket.channel).to.be.a('function');
         });
 
+        it('Should allow registering an error callback', function () {
+            expect(websocket).to.haveOwnProperty('onError');
+            expect(websocket.onError).to.be.a('function');
+        });
+
     });
 });

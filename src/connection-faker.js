@@ -5,8 +5,9 @@ import Connection from "./connection";
  */
 export default class ConnectionFaker extends Connection {
 
-    constructor(url, core) {
-        super(url, core);
+    constructor(context, core) {
+        super(context, core);
+        this.url = "http://local.test";
     }
 
     connect() {
