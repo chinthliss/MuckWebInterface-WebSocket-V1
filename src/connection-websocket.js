@@ -1,4 +1,6 @@
 import Connection from "./connection";
+import axios from "axios";
+import Core from "./core";
 
 /**
  * Handles the underlying websocket connection
@@ -9,7 +11,17 @@ export default class ConnectionWebSocket extends Connection {
      * In case we're outdated and need a refresh.
      * @type {number}
      */
-    static protocolVersion = 1;
+    protocolVersion = 1;
+
+    /**
+     * @type {string}
+     */
+    authenticationUrl;
+
+    /**
+     * @type {string}
+     */
+    websocketUrl;
 
     /**
      * @type {WebSocket}
@@ -36,66 +48,91 @@ export default class ConnectionWebSocket extends Connection {
 
         // Calculate where we're connecting to
         if (context.location) {
-            this.url = (location.protocol === 'https:' ? 'wss://' : 'ws://') // Ensure same level of security as page
-                + location.hostname + "/liveconnect/ws";
+            this.websocketUrl = (location.protocol === 'https:' ? 'wss://' : 'ws://') // Ensure same level of security as page
+                + location.hostname + "/mwi/ws";
+            this.authenticationUrl = location.origin + '/getWebsocketToken';
         } else {
             // As of writing, the only context without a location should be testing which should be us
             throw "No location in provided context!"
         }
         // Overrides for local testing
-        if (environment === 'development') {
-            this.url = "ws://test.flexiblesurvival.com/liveconnect/ws";
+        if (this.core.environment === 'development') {
+            this.websocketUrl = "wss://beta.flexiblesurvival.com/mwi/ws";
+            this.websocketUrl = "https://beta.flexiblesurvival.com/getWebsocketToken";
         }
 
         // Add parameters to Url
-        this.url += '?protocolVersion=' + this.protocolVersion;
+        this.websocketUrl += '?protocolVersion=' + this.protocolVersion;
 
     }
 
-    connect() {
-        this.connection = new WebSocket(this.url + "&session=" + this.core.session, 'mwi');
+    openWebsocket(websocketToken) {
+        this.connection = new WebSocket(this.websocketUrl,'mwi');
 
         this.connection.onopen = () => {
             if (this.core.debug) console.log("WebSocket opened.");
+            this.core.updateAndDispatchStatus(Core.connectionStates.login);
             this.receivedWelcome = false;
             this.handshakeCompleted = false;
             this.ensureConnectionTimeout = setTimeout(function () {
-                console.log("MwiLive Error - WebSocket took too long to complete handshake, assuming failure.");
-                this.core.websocketFailed();
+                console.log("Mwi-Websocket Error - WebSocket took too long to complete handshake, assuming failure.");
+                this.core.connectionFailed("Websocket took too long to connect.");
             }.bind(this), 10000);
         };
 
         this.connection.onclose = () => {
-            if (this.core.debug) console.log("WebSocket closed - passing back to host.");
-            this.core.websocketFailed();
+            if (this.core.debug) console.log("WebSocket closed.");
+            this.core.connectionFailed("Websocket closed unexpectedly.")
         };
 
         this.connection.onerror = (e) => {
-            console.log("MwiLive Error - WebSocket error: ", e);
-            this.core.websocketFailed();
+            console.log("Mwi-Websocket Error - WebSocket error: ", e);
+            this.core.connectionFailed("Websocket return error: " + e);
         };
 
         this.connection.onmessage = (e) => {
             let message = e.data.slice(0, -2); //Remove \r\n
             if (!this.receivedWelcome) {
                 if (message === 'welcome') {
-                    this.connection.send('welcome');
+                    this.connection.send('auth ' + websocketToken);
                     this.receivedWelcome = true;
-                    if (this.core.debug) console.log("WebSocket received initial welcome message.");
-                } else console.log("MwiLive Error - WebSocket got an unexpected message whilst expecting welcome: " + message);
+                    if (this.core.debug) console.log("WebSocket received initial welcome message, attempting to authenticate.");
+                } else console.log("Mwi-Websocket Error - WebSocket got an unexpected message whilst expecting welcome: " + message);
                 return;
             }
             if (!this.handshakeCompleted) {
-                if (message === 'upgraded') {
-                    if (this.core.debug) console.log("WebSocket received handshake.");
+                if (message.startsWith('session ')) {
+                    if (this.core.debug) console.log("WebSocket received session.");
                     this.handshakeCompleted = true;
-                    this.core.completeWebSocketUpgrade();
+                    let session = message.slice(8);
+                    this.core.updateAndDispatchSession(session);
+                    this.core.updateAndDispatchStatus(Core.connectionStates.connected);
                     clearTimeout(this.ensureConnectionTimeout);
-                } else console.log("MwiLive Error - WebSocket got an unexpected message whilst expecting handshake completion: " + message);
+                } else console.log("Mwi-Websocket Error - WebSocket got an unexpected message whilst expecting session: " + message);
                 return;
             }
             this.core.receivedString(message);
         }
+    }
+
+    connect() {
+        this.core.updateAndDispatchStatus(Core.connectionStates.connecting);
+        this.core.updateAndDispatchSession('');
+        this.core.updateAndDispatchPlayer(-1, '');
+
+        //Step 1 - we need to get an authentication token from the webpage
+        let websocketToken;
+        if (this.core.debug) console.log("Mwi-Websocket Requesting authentication token from webpage");
+        axios.get(this.authenticationUrl)
+            .then((response) => {
+                websocketToken = response.data;
+                //Step 2 - connect to the websocket and throw the token at it
+                this.openWebsocket(websocketToken);
+            })
+            .catch((error) => {
+                console.log("Mwi-Websocket ERROR: Failed to get an authentication token from the webpage. Error was:", error);
+                this.core.connectionFailed("Couldn't authenticate");
+            });
     }
 
     disconnect() {

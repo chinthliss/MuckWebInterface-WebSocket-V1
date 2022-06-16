@@ -31,6 +31,12 @@ export default class Core {
     }
 
     /**
+     * Not the best way to do this but couldn't find another way
+     * @type {string}
+     */
+    environment = "production";
+
+    /**
      * @type {boolean}
      */
     localStorageAvailable = false; // We'll set this properly in the constructor
@@ -90,15 +96,15 @@ export default class Core {
     constructor() {
         // Previously this was a test to find something in order of self, window, global
         let context = globalThis;
-        let environment = "production";
-        if (typeof process !== 'undefined' && process?.env?.NODE_ENV) environment = process.env.NODE_ENV;
+
+        if (typeof process !== 'undefined' && process?.env?.NODE_ENV) this.environment = process.env.NODE_ENV;
 
         // Figure out whether we have local storage.
         this.localStorageAvailable = 'localStorage' in context;
         if (this.localStorageAvailable && localStorage.getItem('mwiWebsocket-debug') === 'y') this.debug = true;
 
         // Work out which connection we're using
-        if (environment === 'test') this.connection = new ConnectionFaker(context, this);
+        if (this.environment === 'test') this.connection = new ConnectionFaker(context, this);
         if (!this.connection) {
             if ("WebSocket" in context) this.connection = new ConnectionWebSocket(context, this);
         }
@@ -210,6 +216,7 @@ export default class Core {
      * @param {string} newSession The New session
      */
     updateAndDispatchSession(newSession) {
+        if (this.session === newSession) return;
         if (this.debug) console.log("Session changed to " + newSession);
         if (this.session) { //Maybe send join requests?
             let channelsToJoin = [];
@@ -224,10 +231,13 @@ export default class Core {
 
     /**
      * Called by present connection
-     * @param {string} newDbref New Dbref for player
+     * @param {number} newDbref New Dbref for player
      * @param {string} newName New name for the player
      */
-    updateAndDispatchPlayerChanged(newDbref, newName) {
+    updateAndDispatchPlayer(newDbref, newName) {
+        if (this.playerDbref === newDbref && this.playerName === newName) return;
+        this.playerDbref = newDbref;
+        this.playerName = newName;
         if (this.debug) console.log("Player changed: " + newName + '(' + newDbref + ')');
         for (let i = 0, maxi = this.playerChangedHandlers.length; i < maxi; i++) {
             try {
@@ -237,19 +247,6 @@ export default class Core {
         }
     }
 
-    /**
-     *
-     * @param {string} error
-     */
-    dispatchError(error) {
-        console.log("Mwi-Websocket Error reported: " + error);
-        for (let i = 0, maxi = this.errorHandlers.length; i < maxi; i++) {
-            try {
-                this.errorHandlers[i](error);
-            } catch (e) {
-            }
-        }
-    }
 
     /**
      * Called by present connection
@@ -266,6 +263,20 @@ export default class Core {
             }
         }
     };
+
+    /**
+     *
+     * @param {string} error
+     */
+    dispatchError(error) {
+        console.log("Mwi-Websocket Error reported: " + error);
+        for (let i = 0, maxi = this.errorHandlers.length; i < maxi; i++) {
+            try {
+                this.errorHandlers[i](error);
+            } catch (e) {
+            }
+        }
+    }
 
     /**
      * Handles any incoming string, whether it's a regular message or system message
@@ -311,7 +322,7 @@ export default class Core {
             return;
         }
         if (incoming === 'upgraded') {
-            if (this.debug) console.log("Mwi-Websocket received notification on HttpStream that upgrade has occured.");
+            if (this.debug) console.log("Mwi-Websocket received notification on HttpStream that upgrade has occurred.");
             //We don't actually do anything here, the websocket will also receive this notification and react.
             return;
         }
@@ -389,11 +400,21 @@ export default class Core {
     };
 
     /**
+     * @param {string} reason
+     * @param {boolean} fatal Whether to prevent trying again
+     */
+    connectionFailed(reason, fatal = false) {
+        this.updateAndDispatchStatus(Core.connectionStates.failed);
+        this.dispatchError(reason);
+        //TODO: 3 tries if it wasn't fatal
+        //TODO: Notify user if we've given up or it was fatal
+    }
+
+    /**
      * Starts the attempts to connect.
      */
     startConnection() {
         if (this.debug) console.log("Starting connection.");
-        this.updateAndDispatchStatus(Core.connectionStates.connecting);
         this.session = "";
         for (let channel in this.channels) {
             if (this.channels.hasOwnProperty(channel)) {
