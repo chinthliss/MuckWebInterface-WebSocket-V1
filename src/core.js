@@ -405,9 +405,9 @@ export default class Core {
      */
     connectionFailed(reason, fatal = false) {
         this.updateAndDispatchStatus(Core.connectionStates.failed);
-        this.dispatchError(reason);
         //TODO: 3 tries if it wasn't fatal
-        //TODO: Notify user if we've given up or it was fatal
+        //TODO: Dispatch error only if we've given up or it was fatal
+        this.dispatchError(reason);
     }
 
     /**
@@ -415,7 +415,9 @@ export default class Core {
      */
     startConnection() {
         if (this.debug) console.log("Starting connection.");
-        this.session = "";
+        this.updateAndDispatchStatus(Core.connectionStates.connecting);
+        this.updateAndDispatchSession('');
+        this.updateAndDispatchPlayer(-1, '');
         for (let channel in this.channels) {
             if (this.channels.hasOwnProperty(channel)) {
                 //Channels will be re-joined but we need to let them know to buffer until the muck acknowledges them.

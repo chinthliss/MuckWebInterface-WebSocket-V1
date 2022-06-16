@@ -116,10 +116,6 @@ export default class ConnectionWebSocket extends Connection {
     }
 
     connect() {
-        this.core.updateAndDispatchStatus(Core.connectionStates.connecting);
-        this.core.updateAndDispatchSession('');
-        this.core.updateAndDispatchPlayer(-1, '');
-
         //Step 1 - we need to get an authentication token from the webpage
         let websocketToken;
         if (this.core.debug) console.log("Mwi-Websocket Requesting authentication token from webpage");
