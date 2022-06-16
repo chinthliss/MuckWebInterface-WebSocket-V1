@@ -1,10 +1,15 @@
-const chai = require('chai');
+// const chai = require('chai');
+import * as chai from 'chai';
 const expect = chai.expect;
 
-process.env.NODE_ENV = 'test'
-const websocket = require('../src/index.js');
+import websocket from '../src/index.js';
 
 describe('Library', function () {
+
+    before(() => {
+        process.env.NODE_ENV = 'test';
+    });
+
     describe('Core', function () {
 
         it('Should provide a channel function', function () {
@@ -29,6 +34,13 @@ describe('Library', function () {
             expect(websocket.onPlayerChange).to.be.a('function');
             expect(() => websocket.onPlayerChange(() => {})).to.not.throw();
         });
+
+        it('Should start', function () {
+            expect(websocket).to.haveOwnProperty('init');
+            expect(websocket.init).to.be.a('function');
+            expect(() => websocket.init(() => {})).to.not.throw();
+        });
+
 
     });
 });

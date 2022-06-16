@@ -93,27 +93,6 @@ export default class Core {
      */
     channels = {};
 
-    constructor() {
-        // Previously this was a test to find something in order of self, window, global
-        let context = globalThis;
-
-        if (typeof process !== 'undefined' && process?.env?.NODE_ENV) this.environment = process.env.NODE_ENV;
-
-        // Figure out whether we have local storage.
-        this.localStorageAvailable = 'localStorage' in context;
-        if (this.localStorageAvailable && localStorage.getItem('mwiWebsocket-debug') === 'y') this.debug = true;
-
-        // Work out which connection we're using
-        if (this.environment === 'test') this.connection = new ConnectionFaker(context, this);
-        if (!this.connection) {
-            if ("WebSocket" in context) this.connection = new ConnectionWebSocket(context, this);
-        }
-        if (!this.connection) throw "Failed to find any usable connection method";
-
-        // And start the connection up
-        this.startConnection();
-    }
-
     /**
      * Enables or disables printing debug information in the console
      * @param {boolean} trueOrFalse
@@ -408,6 +387,27 @@ export default class Core {
         //TODO: 3 tries if it wasn't fatal
         //TODO: Dispatch error only if we've given up or it was fatal
         this.dispatchError(reason);
+    }
+
+    init() {
+        // Previously this was a test to find something in order of self, window, global
+        let context = globalThis;
+
+        if (typeof process !== 'undefined' && process?.env?.NODE_ENV) this.environment = process.env.NODE_ENV;
+
+        // Figure out whether we have local storage.
+        this.localStorageAvailable = 'localStorage' in context;
+        if (this.localStorageAvailable && localStorage.getItem('mwiWebsocket-debug') === 'y') this.debug = true;
+
+        // Work out which connection we're using
+        if (this.environment === 'test') this.connection = new ConnectionFaker(context, this);
+        if (!this.connection) {
+            if ("WebSocket" in context) this.connection = new ConnectionWebSocket(context, this);
+        }
+        if (!this.connection) throw "Failed to find any usable connection method";
+
+        // And start the connection up
+        this.startConnection();
     }
 
     /**

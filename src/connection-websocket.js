@@ -1,6 +1,6 @@
-import Connection from "./connection";
+import Connection from "./connection.js";
 import axios from "axios";
-import Core from "./core";
+import Core from "./core.js";
 
 /**
  * Handles the underlying websocket connection

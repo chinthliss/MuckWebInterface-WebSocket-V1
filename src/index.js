@@ -1,13 +1,16 @@
-import Core from "./core";
+import Core from "./core.js";
 
 let core = new Core();
 
-export const channel = core.channel.bind(core);
-export const onError = core.onError.bind(core);
-export const onConnectionStateChange = core.onStatusChanged.bind(core);
-export const onPlayerChange = core.onPlayerChanged.bind(core);
-export const getPlayerName = core.getPlayerName.bind(core);
-export const getPlayerDbref = core.getPlayerDbref.bind(core);
-export const isPlayerSet = core.IsPlayerSet.bind(core);
-export const getConnectionState = core.getConnectionState.bind(core);
-export const setDebug = core.setDebug.bind(core);
+export default {
+    init: core.init.bind(core),
+    channel: core.channel.bind(core),
+    onError: core.onError.bind(core),
+    onConnectionStateChange: core.onStatusChanged.bind(core),
+    onPlayerChange: core.onPlayerChanged.bind(core),
+    getPlayerName: core.getPlayerName.bind(core),
+    getPlayerDbref: core.getPlayerDbref.bind(core),
+    isPlayerSet: core.IsPlayerSet.bind(core),
+    getConnectionState: core.getConnectionState.bind(core),
+    setDebug: core.setDebug.bind(core)
+}

@@ -3,14 +3,15 @@
   "version": "1.0.0",
   "description": "Encapsulates the functionality for a JS client to communication to a MUCK over a WebSocket.",
   "main": "dist/index.js",
+  "type": "module",
+  "author": "Chinthliss",
+  "license": "ISC",
   "scripts": {
     "test": "mocha --require @babel/register",
     "dev": "webpack --mode development",
     "servedev": "webpack-dev-server --mode development",
     "build": "webpack --mode production"
   },
-  "author": "Chinthliss",
-  "license": "ISC",
   "devDependencies": {
     "@babel/core": "^7.18.5",
     "@babel/preset-env": "^7.18.2",
