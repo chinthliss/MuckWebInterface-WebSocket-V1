@@ -12,9 +12,22 @@ describe('Library', function () {
             expect(websocket.channel).to.be.a('function');
         });
 
-        it('Should allow registering an error callback', function () {
+        it('Should allow registering a callback for errors', function () {
             expect(websocket).to.haveOwnProperty('onError');
             expect(websocket.onError).to.be.a('function');
+            expect(() => websocket.onError(() => {})).to.not.throw();
+        });
+
+        it('Should allow registering a callback for connection state changes', function () {
+            expect(websocket).to.haveOwnProperty('onConnectionStateChange');
+            expect(websocket.onConnectionStateChange).to.be.a('function');
+            expect(() => websocket.onConnectionStateChange(() => {})).to.not.throw();
+        });
+
+        it('Should allow registering a callback for player changes', function () {
+            expect(websocket).to.haveOwnProperty('onPlayerChange');
+            expect(websocket.onPlayerChange).to.be.a('function');
+            expect(() => websocket.onPlayerChange(() => {})).to.not.throw();
         });
 
     });

@@ -375,7 +375,7 @@ export default class Core {
      * Utility function to return whether a player exists
      * @returns {boolean}
      */
-    getPlayerIsSet() {
+    IsPlayerSet() {
         return this.playerDbref !== -1;
     };
 
