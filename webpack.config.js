@@ -9,6 +9,7 @@ export default function config(args, options) {
     const appConfig = {
         entry: __dirname + '/src/index.js',
         mode: isProduction ? "production" : "development",
+        experiments: { outputModule: true },
         module: {
             rules: [
                 {
@@ -24,8 +25,7 @@ export default function config(args, options) {
             path: __dirname + "dist/",
             filename: 'index.js',
             library: {
-                name: 'MWI_WebSocket',
-                type: 'umd'
+                type: 'module'
             }
         }
     };
