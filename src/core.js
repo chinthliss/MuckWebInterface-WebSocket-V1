@@ -24,6 +24,7 @@ export default class Core {
      * @readonly
      */
     static connectionStates = {
+        disconnected: 'disconnected', // Only likely to be this at startup or if turned off
         connecting: 'connecting',
         login: 'login',
         connected: 'connected',
@@ -44,7 +45,7 @@ export default class Core {
     /**
      * @type {(connectionStates)}
      */
-    connectionStatus;
+    connectionStatus = Core.connectionStates.disconnected;
 
     /**
      * @type {string}
@@ -177,15 +178,6 @@ export default class Core {
      */
     onStatusChanged(callback) {
         this.statusChangedHandlers.push(callback);
-        //Trigger a one-off in case this handler is being attached after the initial connection
-        setTimeout(function () {
-            try {
-                callback(this.connectionStatus);
-                if (this.debug) console.log('Registered new statusChangedHandler and sent present status of: ' + this.connectionStatus);
-            } catch (e) {
-                if (this.debug) console.log('Registered new statusChangedHandler but failed to use its callback.');
-            }
-        }.bind(this));
     }
 
     //endregion Event Handlers

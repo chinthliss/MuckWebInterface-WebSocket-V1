@@ -5,7 +5,7 @@ import Channel from "./channel.js";
  */
 export default class ChannelInterface {
     /**
-     * Channel object hosting this public interface
+     * Channel that this public interface is for
      * @type {Channel} channel
      */
     #channel;
@@ -18,10 +18,16 @@ export default class ChannelInterface {
         this.#channel = channel;
     }
 
+    /**
+     * @returns {string}
+     */
     name() {
         return this.#channel.name;
     }
 
+    /**
+     * @returns {string}
+     */
     toString() {
         return "Channel[" + this.name() + "]"
     }
