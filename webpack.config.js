@@ -23,7 +23,7 @@ export default function config(args, options) {
         },
         output: {
             path: __dirname + "dist/",
-            filename: 'index.js',
+            filename: 'mwi-websocket.js',
             library: {
                 type: 'module'
             }
@@ -31,7 +31,6 @@ export default function config(args, options) {
     };
 
     const devServer = {
-        contentBase: __dirname + 'dist/',
         port: 9000,
         headers: {
             'Access-Control-Allow-Origin': '*'
