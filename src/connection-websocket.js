@@ -67,7 +67,7 @@ export default class ConnectionWebSocket extends Connection {
     }
 
     openWebsocket(websocketToken) {
-        this.connection = new WebSocket(this.websocketUrl,'mwi');
+        this.connection = new WebSocket(this.websocketUrl, 'mwi');
 
         this.connection.onopen = () => {
             if (this.core.debug) console.log("WebSocket opened.");

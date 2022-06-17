@@ -9,7 +9,7 @@ export default function config(args, options) {
     const appConfig = {
         entry: __dirname + '/src/index.js',
         mode: isProduction ? "production" : "development",
-        experiments: { outputModule: true },
+        experiments: {outputModule: true},
         module: {
             rules: [
                 {
@@ -38,6 +38,6 @@ export default function config(args, options) {
         }
     }
 
-    return isDevServer ? { ...appConfig, devServer } : appConfig;
+    return isDevServer ? {...appConfig, devServer} : appConfig;
 }
 

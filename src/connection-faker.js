@@ -13,7 +13,7 @@ export default class ConnectionFaker extends Connection {
     connect() {
         this.core.updateAndDispatchSession('1234');
         this.core.updateAndDispatchStatus(Core.connectionStates.connected);
-        this.core.updateAndDispatchPlayer(1 ,'TestPlayer');
+        this.core.updateAndDispatchPlayer(1, 'TestPlayer');
     }
 
     disconnect() {
