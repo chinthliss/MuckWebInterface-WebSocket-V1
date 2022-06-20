@@ -11,8 +11,9 @@ This page just loads the library to test it. Check the console.
 <script type="module">
     import websocket from "/mwi-websocket.js";
     const options = {
-        websocketUrl: "wss://beta.flexiblesurvival.com/mwi/ws",
-        authenticationUrl: "https://beta.flexiblesurvival.com/getWebsocketToken"
+        websocketUrl: "ws://mwi.flexiblesurvival.com/mwi/ws",
+        authenticationUrl: "http://mwi.flexiblesurvival.com/getWebsocketToken",
+        environment: 'localdevelopment'
     }
     websocket.init(options);
 
