@@ -32,6 +32,11 @@ export default function config(args, options) {
 
     const devServer = {
         port: 9000,
+        // hot: true,
+        static: {
+            directory: __dirname + 'public',
+            publicPath: '/'
+        },
         headers: {
             'Access-Control-Allow-Origin': '*'
         }

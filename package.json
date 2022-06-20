@@ -2,7 +2,7 @@
   "name": "muckwebinterface-websocket",
   "version": "1.0.0",
   "description": "Encapsulates the functionality for a JS client to communication to a MUCK over a WebSocket.",
-  "main": "dist/index.js",
+  "main": "dist/mwi-websocket.js",
   "type": "module",
   "author": "Chinthliss",
   "license": "ISC",
