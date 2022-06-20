@@ -6,8 +6,8 @@ import Core from "./core.js";
  */
 export default class ConnectionFaker extends Connection {
 
-    constructor(context, core) {
-        super(context, core);
+    constructor(core, options = {}) {
+        super(core, options);
     }
 
     connect() {

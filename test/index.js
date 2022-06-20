@@ -27,8 +27,7 @@ describe('MWI-Websocket', function () {
         it('Should have an an init function and startup okay', function () {
             expect(websocket).to.haveOwnProperty('init');
             expect(websocket.init).to.be.a('function');
-            expect(() => websocket.init(() => {
-            })).to.not.throw();
+            expect(() => websocket.init()).to.not.throw();
         });
     });
 

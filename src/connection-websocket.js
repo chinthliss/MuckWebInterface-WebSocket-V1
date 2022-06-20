@@ -49,23 +49,18 @@ export default class ConnectionWebSocket extends Connection {
      */
     connectingOutgoingMessageBuffer;
 
-    constructor(context, core) {
-        super(context, core);
+    /**
+     * @param {Core} core
+     * @param {object} options
+     */
+    constructor(core, options = {}) {
+        super(core, options);
+
+        if (!options.websocketUrl || !options.authenticationUrl) throw "Missing mandatory options";
 
         // Calculate where we're connecting to
-        if (context.location) {
-            this.websocketUrl = (location.protocol === 'https:' ? 'wss://' : 'ws://') // Ensure same level of security as page
-                + location.hostname + "/mwi/ws";
-            this.authenticationUrl = location.origin + '/getWebsocketToken';
-        } else {
-            // As of writing, the only context without a location should be testing which should be us
-            throw "No location in provided context!"
-        }
-        // Overrides for local testing
-        if (this.core.environment === 'development') {
-            this.websocketUrl = "wss://beta.flexiblesurvival.com/mwi/ws";
-            this.websocketUrl = "https://beta.flexiblesurvival.com/getWebsocketToken";
-        }
+        this.websocketUrl = options.websocketUrl;
+        this.authenticationUrl = options.authenticationUrl;
 
         // Add parameters to Url
         this.websocketUrl += '?protocolVersion=' + this.protocolVersion;

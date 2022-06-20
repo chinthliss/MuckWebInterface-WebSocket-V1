@@ -381,20 +381,38 @@ export default class Core {
         this.dispatchError(reason);
     }
 
-    init() {
+    /**
+     * Boots the library. Following options are presently supported
+     * environment - Defaults to production. Code will check process.env.NODE_ENV first but this can override such.
+     * websocketUrl - The url the websocket connection should use
+     * authenticationUrl - The url that should be used to get an authentication token for the websocket connection
+     * @param {object} options
+     */
+    init(options = {}) {
         // Previously this was a test to find something in order of self, window, global
         let context = globalThis;
 
+        // Change/override environment if required
         if (typeof process !== 'undefined' && process?.env?.NODE_ENV) this.environment = process.env.NODE_ENV;
+        if (options.environment) this.environment = options.environment;
 
-        // Figure out whether we have local storage.
+        // Figure out whether we have local storage (And load debug option if so)
         this.localStorageAvailable = 'localStorage' in context;
         if (this.localStorageAvailable && localStorage.getItem('mwiWebsocket-debug') === 'y') this.debug = true;
 
         // Work out which connection we're using
-        if (this.environment === 'test') this.connection = new ConnectionFaker(context, this);
+        if (this.environment === 'test') this.connection = new ConnectionFaker(this, options);
         if (!this.connection) {
-            if ("WebSocket" in context) this.connection = new ConnectionWebSocket(context, this);
+            if ("WebSocket" in context) {
+                // Calculate where we're connecting to
+                if (context.location) {
+                    if (!options.websocketUrl) options.websocketUrl =
+                        (location.protocol === 'https:' ? 'wss://' : 'ws://') // Ensure same level of security as page
+                        + location.hostname + "/mwi/ws";
+                    if (!options.authenticationUrl) options.authenticationUrl = location.origin + '/getWebsocketToken';
+                }
+                this.connection = new ConnectionWebSocket(this, options);
+            }
         }
         if (!this.connection) throw "Failed to find any usable connection method";
 

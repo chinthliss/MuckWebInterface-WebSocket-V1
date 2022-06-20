@@ -4,8 +4,17 @@
     <meta charset="UTF-8">
     <title>Test</title>
 </head>
-<script src="/mwi-websocket.js"></script>
 <body>
 This page just loads the library to test it. Check the console.
 </body>
 </html>
+<script type="module">
+    import websocket from "/mwi-websocket.js";
+    const options = {
+        websocketUrl: "wss://beta.flexiblesurvival.com/mwi/ws",
+        authenticationUrl: "https://beta.flexiblesurvival.com/getWebsocketToken"
+    }
+    websocket.init(options);
+
+
+</script>

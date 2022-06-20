@@ -10,14 +10,12 @@ export default class Connection {
     core;
 
     /**
-     * @param {Object} context Either window, global or self. The object holding the environmental globals.
-     * @param {Core} core Object to send notifications and share properties.
+     * @param {Core} core Reference to the core service, so we can communication with it
+     * @param {object} options Intended more to be used by inheriting services
      */
-    constructor(context, core) {
-        if (typeof context !== 'object') throw "Missing or incorrect argument - context";
+    constructor(core, options = {}) {
         if (typeof core !== 'object') throw "Missing or incorrect argument - core";
         this.core = core;
-        // Context is intended to be used by connections overriding this one.
     }
 
     /////////////////////////////////////
