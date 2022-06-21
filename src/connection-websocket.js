@@ -67,12 +67,20 @@ export default class ConnectionWebSocket extends Connection {
 
     }
 
+    clearConnectionTimeoutIfSet = () => {
+        if (this.ensureConnectionTimeout !== -1) {
+            clearTimeout(this.ensureConnectionTimeout);
+            this.ensureConnectionTimeout = -1;
+        }
+    };
+
     /**
      * @param {CloseEvent} e
      */
     handleWebSocketClose = (e) => {
         if (this.core.debug) console.log("WebSocket closed: ", e);
-        this.core.connectionFailed("Websocket closed with reason: " + e.reason);
+        this.clearConnectionTimeoutIfSet();
+        this.core.connectionFailed("Websocket closed with " + (e.reason ? "reason: " + e.reason : "no reason given."));
     };
 
     /**
@@ -80,6 +88,7 @@ export default class ConnectionWebSocket extends Connection {
      */
     handleWebSocketError = (e) => {
         console.log("Mwi-Websocket Error - WebSocket error: ", e);
+        this.clearConnectionTimeoutIfSet();
         this.core.connectionFailed("Websocket returned error: " + e.message);
     }
 
@@ -126,7 +135,7 @@ export default class ConnectionWebSocket extends Connection {
                 if (message.startsWith('session ')) {
                     if (this.core.debug) console.log("WebSocket received session.");
                     let session = message.slice(8);
-                    clearTimeout(this.ensureConnectionTimeout);
+                    this.clearConnectionTimeoutIfSet();
                     this.handshakeCompleted = true;
                     this.connection.onmessage = this.handleWebSocketMessage;
                     this.core.updateAndDispatchSession(session);
