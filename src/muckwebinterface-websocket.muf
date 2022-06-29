@@ -7,7 +7,7 @@
 !!@action websocket=#0,$www/mwi/websocket
 !!@propset $www=dbref:_/www/mwi/ws:$www/mwi/websocket
 
-@program $www/mwi/websocket
+@edit $www/mwi/websocket
 1 999999 d
 i
 
@@ -21,8 +21,6 @@ The initial connection requires a 'token' that is retrieved from the main webpag
 Present support - Websockets should now be universal and all the browsers that don't support them have been retired.
 
 Assumes the muck takes time to re-use descrs, in particular that their is sufficient time to see a descr is disconnected before it is re-used.
-
-Present understanding of descrnotify: will append a \r\n AND strip additional trailing ones. Will always trigger a descrflush.
 
 Message are sent over channels, programs register to 'watch' a channel.
 On each message the program looks for functions on registered programs in the form 'on<messsage>' and passes them the message.
@@ -69,6 +67,9 @@ $include $lib/kta/misc
 $include $lib/kta/proto
 $include $lib/kta/json
 $include $lib/account
+$include $lib/websocketIO
+
+$pubdef : (Clear present _defs)
 
 $def allowCrossDomain 1        (Whether to allow cross-domain connections. This should only really be on during testing/development.)
 $def heartbeatTime 2           (How frequently the heartbeat event triggers)
@@ -109,8 +110,7 @@ $def _startLogPacket debugLevel @ debugLevelAll >= if
 $def _stopLogPacket "Pack" getLogPrefix swap strcat logstatus then
 $def _stopLogPacketMultiple foreach nip "Pack" getLogPrefix swap strcat logstatus repeat then
 
-$pubdef : (Clear present _defs)
-
+svar connectionsPending (Connections that haven't completed the handshake yet, indexed by descr)
 svar connectionsBySession (Main collection of sessions)
 svar sessionsByChannel ( {channel:[sessions]} )
 svar sessionsByPlayer ( {playerAsInt:[sessions]} )
@@ -143,13 +143,14 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
     accountsSessionsByChannel @
 ; archcall getCaches 
  
-: getDescrs ( -- arr) (Returns descrs the program is using)
+: getDescrs ( -- arr) (Returns descrs the program is using, so other programs know they're reserved)
     { }list
     connectionsBySession @ foreach nip
         "descr" array_getitem ?dup if
             swap array_appenditem
         then
     repeat
+    connectionsPending @ foreach pop swap array_appenditem repeat
 ; PUBLIC getDescrs 
  
 : getBandwidthCounts ( -- arr)
@@ -175,8 +176,7 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
     "Session " details @ "session" array_getitem dup not if pop "[NOSESSIONID]" then strcat "[" strcat
         "Descr:" details @ "descr" array_getitem intostr strcat strcat
         ", PID:" details @ "pid" array_getitem intostr strcat strcat
-        ", Player:" details @ "player" array_getitem dup ok? if name else pop "-INVALID-" then strcat strcat
-        ", Connection:" details @ "connectionType" array_getitem dup not if pop "???" then strcat strcat
+        ", Player:" details @ "player" array_getitem ?dup not if "-UNSET-" else dup ok? if name else pop "-INVALID-" then then strcat strcat
     "]" strcat
 ;
  
@@ -190,85 +190,11 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
     connectionsBySession @ session @ array_getitem if 1 else 0 then
 ; PUBLIC isSession? 
 
-(Verifies string has no invalid characters for UTF8)
-(At the moment this is anything with a value >= 128 since the last bit is used to express multi-byte characters in UTF8)
-(Also stripping anything beneath 32 since, whilst supported by UTF8, HTML doesn't handle such.)
-: ensureValidUTF8[ str:input -- str:output ]
-    input @ string? not if "Invalid arguments" abort then
-    input @ "[^\\x20-\\x7E]" "" reg_all regsub
-;
-
-: webSocketSendFrame (d:descr a:frameHeader ?:framepayload -- ) (Actually only works with strings but leaving some room for extension)
-    dup string? not if "WebSocketSendFrame was called with a payload that isn't a string!" logError pop pop pop exit then
-    _startLogPacket
-        "WebSocket Out. Descr " 4 pick intostr strcat ": " strcat 3 pick foreach nip itoh strcat " " strcat repeat "| " strcat over strcat
-    _stopLogPacket
-    rot rot foreach nip (? d c)
-        over swap notify_descriptor_char
-    repeat
-    swap descrnotify
-;
-
-: webSocketCreateAcceptKey (s -- s) (creates an accept key based upon the given handshake key as per the Websocket protocol)
-    "258EAFA5-E914-47DA-95CA-C5AB0DC85B11" strcat (Magic key that gets added onto all requests)
-    sha1hash
-    $ifdef isprim(hex2base64str)
-        hex2base64str (Special command to do the whole thing)
-    $else
-        (The base 64 encoding needs to encode the hex values not the string representation of them so we need to split this into sets of 2 and convert hex to chars)
-        (NOTE: Earlier versions of ProtoMuck were unable to handle nullchars which would cause issues.)
-        (This can be tested for - '0 itoc base64encode' should return 'AA==')
-        "" over strlen 2 / 1 swap 1 for 2 * 1 - 3 pick swap 2 midstr htoi itoc strcat repeat base64encode swap pop
-    $endif
-;
-
-(Returns a frame header of the given type. Because of issues converting text from the muck to UTF-8 it returns it as an array of ints)
-: webSocketCreateFrameHeader[ int:opCode int:isFinal int:payloadSize -- arr:header ]
-    (First byte contains type and whether this is the final frame)
-    { opCode @ isFinal @ if 128 bitor then }list
-    (Following byte uses first bit to specify if we're masked, which is always 0, then 7 bits of length.)
-    (Depending on the size we'll either use 0, 2 or 8 additional bytes)
-    payloadSize @ 2 + (Two additional bytes for the /r/n the muck will append)
-    dup 126 < if (Fits in one byte)
-        swap array_appenditem
-    else swap
-        over 65536 < if (Start with 126, then use two bytes to represent length)
-            126 swap array_appenditem
-            over -8 bitshift swap array_appenditem
-            swap 255 bitand swap array_appenditem
-        else (Start with 127 then use eight bytes to represent length)
-            127 swap array_appenditem
-            over 255 56 bitshift bitand swap array_appenditem
-            over 255 48 bitshift bitand swap array_appenditem
-            over 255 40 bitshift bitand swap array_appenditem
-            over 255 32 bitshift bitand swap array_appenditem
-            over 255 24 bitshift bitand swap array_appenditem
-            over 255 16 bitshift bitand swap array_appenditem
-            over 255  8 bitshift bitand swap array_appenditem
-            swap 255 bitand swap array_appenditem
-        then
-    then
-;
-
-: webSocketCreateTextFrameHeader[ str:text -- arr:frameHeader ]
-   1 1 text @ strlen webSocketCreateFrameHeader
-;
-
-: webSocketCreateClosingFrameHeader[ str:content -- arr:frameHeader ] (Takes content since the spec says to reflect any provided content in acknowledgements)
-   8 1 content @ strlen webSocketCreateFrameHeader
-;
-
-: webSocketCreatePingFrameHeader[ str:content -- arr:frameHeader ]
-   9 1 content @ strlen webSocketCreateFrameHeader
-;
-
-: webSocketCreatePongFrameHeader[ str:response -- arr:frameHeader ]
-   10 1 response @ strlen webSocketCreateFrameHeader
-;
 
 : ensureInit
     (Ensures variables are configured and server daemon is running)
     connectionsBySession @ dictionary? not if
+        { }dict connectionsPending !
         { }dict connectionsBySession !
         { }dict sessionsByChannel !
         { }dict sessionsByPlayer !
@@ -764,14 +690,14 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
 		"connectedAt" connectedAt @
 		"session" session @
 	}dict var! sessionDetails
-	sessionDetails @ connectionsBySession @ session @ array_setitem connectionsBySession !
+    
+	sessionDetails @ connectionsPending @ descr array_setitem connectionsPending !
 
 	_startLogPacket
-		"Descr " descr intostr strcat " now associated with " strcat session @ sessionToString strcat
+		"Descr " descr intostr strcat " now associated with " strcat sessionDetails @ sessionDetailsToString strcat
 	_stopLogPacket
 	(TBC: Need to call handleSetPlayer later, when player is set!)
-	(clientProcess)
-	
+	(TBC: Need clientProcess routines for connecting and established connections)
 	
 	_startLogTrivial
 		"Client process on " descr intostr strcat " ran for " strcat systime connectedAt @ - intostr strcat "s." strcat
@@ -833,9 +759,11 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
                         then
                     then
                 repeat
+                (TBC - Need something to drop pending connections that have taken too long)
                 _startLogTrivial
                     "Heartbeat. Connections: " connectionsBySession @ array_count intostr strcat
-                    ". Caches - ByChannel: " strcat sessionsByChannel @ array_count intostr strcat
+                    " active, " strcat connectionsPending @ array_count intostr strcat
+                    " pending. Caches - ByChannel: " strcat sessionsByChannel @ array_count intostr strcat
                     ", ByPlayer: " strcat sessionsByPlayer @ array_count intostr strcat
                     ", SessionsByPlayerByChannel: " strcat playersSessionsByChannel @ array_count intostr strcat
                     ", SessionsByAccountByChannel: " strcat accountsSessionsByChannel @ array_count intostr strcat
