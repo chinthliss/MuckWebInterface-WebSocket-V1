@@ -636,6 +636,63 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
     then
 ;
 
+: attemptToProcessWebsocketMessage[ session buffer -- bufferRemaining ]
+    pop pop { }list
+    (TBC PROCESS CLIENT)
+	(TBC: Need to call handleSetPlayer later, when player is set!)
+	(
+    _startLogPacket
+		"Descr " descr intostr strcat " now associated with " strcat sessionDetails @ sessionDetailsToString strcat
+	_stopLogPacket
+    )
+	(TBC: Need clientProcess routines for connecting and established connections)
+    
+;
+
+: clientProcess[ clientSession -- ]
+    _startLogTrivial
+        "Starting client process for " clientSession @ strcat " on descr " strcat descr intostr strcat
+    _stopLogTrivial
+    var event var eventArguments
+    1 var! keepGoing
+    { }list var! buffer
+    serverProcess @ "registerClientPID" { pid descr }list event_send (So daemon can handle disconnects)
+    depth popn
+    begin keepGoing @ descr descr? AND while
+        background event_wait (debug_line) event ! eventArguments !
+        event @ case
+            "HTTP.disconnect." instring when
+                _startLogPacket
+                    "Client process received disconnect event."
+                _stopLogPacket
+                0 keepGoing !
+            end
+            "HTTP.input_raw" stringcmp not when (Possible websocket data!)
+                _startLogPacket
+                    "Incoming websocket data: " eventArguments @ foreach nip itoh strcat " " strcat repeat
+                _stopLogPacket
+                buffer @
+                dup array_count eventArguments @ array_insertrange
+                clientSession @ swap attemptToProcessWebsocketMessage
+                buffer !
+            end
+            "HTTP.input" stringcmp not when (Not used, just need to be aware of it)
+            end
+            default pop
+            "ERROR: Unhandled client event - " event @ strcat logError
+            end
+        endcase
+        depth if
+            _startLogWarning
+                debug_line_str depth 1 - "Client stack for " descr intostr strcat " had " strcat swap intostr strcat " item(s). Debug_line follows: " strcat swap strcat
+            _stopLogWarning
+        then
+        depth popn
+    repeat
+    _startLogTrivial
+        "Ending client process for " clientSession @ strcat " on descr " strcat descr intostr strcat
+    _stopLogTrivial
+;
 
 : handleClientConnecting
 	descr descr? not if exit then (Connections can be dropped immediately)
@@ -693,16 +750,9 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
     
 	sessionDetails @ connectionsPending @ descr array_setitem connectionsPending !
 
-	_startLogPacket
-		"Descr " descr intostr strcat " now associated with " strcat sessionDetails @ sessionDetailsToString strcat
-	_stopLogPacket
-	(TBC: Need to call handleSetPlayer later, when player is set!)
-	(TBC: Need clientProcess routines for connecting and established connections)
-	
 	_startLogTrivial
 		"Client process on " descr intostr strcat " ran for " strcat systime connectedAt @ - intostr strcat "s." strcat
 	_stopLogTrivial
-
 	
 	sessionDetails @ arrayDump
 ;	
@@ -798,12 +848,29 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
             "Server Process somehow stoped." logError
         then
         exit
-   then
-   (Is this a connection?)
-   command @ "(WWW)" stringcmp not if pop handleClientConnecting exit then
-   me @ mlevel 5 > not if "Wiz-only command." .tell exit then
-   
-	dup "#debug" instring 1 = if
+    then
+    (Is this a connection?)
+    command @ "(WWW)" stringcmp not if pop handleClientConnecting exit then
+
+    me @ mlevel 5 > not if "Wiz-only command." .tell exit then
+
+    dup "#reset" stringcmp not if
+        "[!] Reset triggered: " me @ unparseobj strcat logNotice
+        (Need to kill old PIDs)
+        prog getPids foreach nip pid over = if pop else kill pop then repeat
+        0 serverProcess ! 0 connectionsBySession ! ensureInit
+        "Server reset.." .tell
+        exit
+    then
+
+    dup "#kill" instring 1 = if
+        "[!] Kill signal received." logNotice
+        "Service will shut down. This command is largely just here for testing - the system will start up again if something requests it." .tell
+        0 serverProcess !
+        exit
+    then
+
+    dup "#debug" instring 1 = if
 		6 strcut nip strip
 		dup "" stringcmp not if
 			"Valid values are: off, warning, info, trivial, all" .tell
