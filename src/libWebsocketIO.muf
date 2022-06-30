@@ -122,8 +122,18 @@ $def _stopDebugMultipleLines foreach nip getLogPrefix swap strcat logstatus repe
    10 1 response @ strlen webSocketCreateFrameHeader
 ; PUBLIC webSocketCreatePongFrameHeader
 
-: webSocketOpCodeToString[ int:opcode -- str:Text ]
-    (PENDING)
+: webSocketOpCodeToString[ int:opCode -- str:Text ]
+    opCode @ case
+        128 = when "Continuation" end (Not supported)
+        129 = when "Text" end
+        130 = when "Binary" end (Not supported)
+        (131 - 135 are reserved for future use)
+        136 = when "Close" end
+        137 = when "Ping" end
+        138 = when "Pong" end
+        (139 - 143 are reserved for future use)
+        default "Unrecogized OpCode(" swap intostr strcat ")" strcat end
+    endcase
 ; PUBLIC webSocketOpCodeToString
 
 : websocketGetFrameFromIncomingBuffer[ arr:buffer -- int:opCode str:payload arr:remainingBuffer ]
