@@ -15,7 +15,7 @@ Also to allow room to potentially identify improvements to it.
 Present understanding of descrnotify: will append a \r\n AND strip additional trailing ones. Will always trigger a descrflush.
 )
 
-$version 1.0
+$version 1.1
 
 $include $lib/kta/proto
 $include $lib/kta/strings
@@ -29,14 +29,18 @@ $ifdef is_dev
 $endif
 )
 
-$libdef webSocketSendFrame
 $libdef webSocketCreateAcceptKey
 $libdef webSocketCreateFrameHeader
 $libdef webSocketCreateTextFrameHeader
-$libdef webSocketCreateClosingFrameHeader
+$libdef webSocketCreateCloseFrameHeader
 $libdef webSocketCreatePingFrameHeader
 $libdef webSocketCreatePongFrameHeader
 $libdef websocketGetFrameFromIncomingBuffer
+$libdef webSocketSendFrame
+$libdef webSocketSendTextFrameToDescrs
+$libdef webSocketSendCloseFrameToDescrs
+$libdef webSocketSendPingFrameToDescrs
+$libdef webSocketSendPongFrameToDescrs
 
 $def _startDebug debugWebsocketIO if
 $def _stopDebugSingleLine getLogPrefix swap strcat logstatus then
@@ -54,16 +58,19 @@ $def _stopDebugMultipleLines foreach nip getLogPrefix swap strcat logstatus repe
   getLogPrefix " WARNING: " strcat swap strcat logstatus
 ;
 
-: webSocketSendFrame (d:descr a:frameHeader ?:framepayload -- ) (Actually only works with strings but leaving some room for extension)
-    dup string? not if "WebSocketSendFrame was called with a payload that isn't a string!" logError pop pop pop exit then
-    _startDebug
-        "WebSocket Out. Descr " 4 pick intostr strcat ": " strcat 3 pick foreach nip itoh strcat " " strcat repeat "| " strcat over strcat
-    _stopDebugSingleLine
-    rot rot foreach nip (? d c)
-        over swap notify_descriptor_char
-    repeat
-    swap descrnotify
-; PUBLIC webSocketSendFrame
+: webSocketOpCodeToString[ int:opCode -- str:Text ]
+    opCode @ case
+        128 = when "Continuation" end (Not supported)
+        129 = when "Text" end
+        130 = when "Binary" end (Not supported)
+        (131 - 135 are reserved for future use)
+        136 = when "Close" end
+        137 = when "Ping" end
+        138 = when "Pong" end
+        (139 - 143 are reserved for future use)
+        default "Unrecogized OpCode(" swap intostr strcat ")" strcat end
+    endcase
+; PUBLIC webSocketOpCodeToString
 
 : webSocketCreateAcceptKey (s -- s) (creates an accept key based upon the given handshake key as per the Websocket protocol)
     "258EAFA5-E914-47DA-95CA-C5AB0DC85B11" strcat (Magic key that gets added onto all requests)
@@ -110,9 +117,9 @@ $def _stopDebugMultipleLines foreach nip getLogPrefix swap strcat logstatus repe
    1 1 text @ strlen webSocketCreateFrameHeader
 ; PUBLIC webSocketCreateTextFrameHeader
 
-: webSocketCreateClosingFrameHeader[ str:content -- arr:frameHeader ] (Takes content since the spec says to reflect any provided content in acknowledgements)
+: webSocketCreateCloseFrameHeader[ str:content -- arr:frameHeader ] (Takes content since the spec says to reflect any provided content in acknowledgements)
    8 1 content @ strlen webSocketCreateFrameHeader
-; PUBLIC webSocketCreateClosingFrameHeader
+; PUBLIC webSocketCreateCloseFrameHeader
 
 : webSocketCreatePingFrameHeader[ str:content -- arr:frameHeader ]
    9 1 content @ strlen webSocketCreateFrameHeader
@@ -122,19 +129,44 @@ $def _stopDebugMultipleLines foreach nip getLogPrefix swap strcat logstatus repe
    10 1 response @ strlen webSocketCreateFrameHeader
 ; PUBLIC webSocketCreatePongFrameHeader
 
-: webSocketOpCodeToString[ int:opCode -- str:Text ]
-    opCode @ case
-        128 = when "Continuation" end (Not supported)
-        129 = when "Text" end
-        130 = when "Binary" end (Not supported)
-        (131 - 135 are reserved for future use)
-        136 = when "Close" end
-        137 = when "Ping" end
-        138 = when "Pong" end
-        (139 - 143 are reserved for future use)
-        default "Unrecogized OpCode(" swap intostr strcat ")" strcat end
-    endcase
-; PUBLIC webSocketOpCodeToString
+: webSocketSendFrame (d:descr a:frameHeader ?:framepayload -- ) (Actually only works with strings but leaving some room for extension)
+    dup string? not if "WebSocketSendFrame was called with a payload that isn't a string!" logError pop pop pop exit then
+    _startDebug
+        "WebSocket Out. Descr " 4 pick intostr strcat ": " strcat 3 pick foreach nip itoh strcat " " strcat repeat "| " strcat over strcat
+    _stopDebugSingleLine
+    rot rot foreach nip (? d c)
+        over swap notify_descriptor_char
+    repeat
+    swap descrnotify
+; PUBLIC webSocketSendFrame
+
+: webSocketSendTextFrameToDescrs[ arr:descrs str:text -- ]
+    text @ webSocketCreateTextFrameHeader var! frameHeader
+    descrs @ foreach nip
+        frameHeader @ text @ webSocketSendFrame
+    repeat
+; PUBLIC webSocketSendTextFrameToDescrs
+
+: webSocketSendCloseFrameToDescrs[ arr:descrs str:response -- ]
+    response @ webSocketCreateCloseFrameHeader var! frameHeader
+    descrs @ foreach nip
+        frameHeader @ response @ webSocketSendFrame
+    repeat
+; PUBLIC webSocketSendCloseFrameToDescrs
+
+: webSocketSendPingFrameToDescrs[ arr:descrs str:content -- ]
+    content @ webSocketCreatePingFrameHeader var! frameHeader
+    descrs @ foreach nip
+        frameHeader @ content @ webSocketSendFrame
+    repeat
+; PUBLIC webSocketSendPingFrameToDescrs
+
+: webSocketSendPongFrameToDescrs[ arr:descrs str:response -- ]
+    response @ webSocketCreatePongFrameHeader var! frameHeader
+    descrs @ foreach nip
+        frameHeader @ response @ webSocketSendFrame
+    repeat
+; PUBLIC webSocketSendPongFrameToDescrs
 
 : websocketGetFrameFromIncomingBuffer[ arr:buffer -- int:opCode str:payload arr:remainingBuffer ]
    (Quick break down on possible stucture in bytes:)

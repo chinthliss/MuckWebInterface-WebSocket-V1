@@ -31,7 +31,7 @@ MSGChannel,Message,Data
   Standard message sent over a channel. Data is JSON encoded
 SYSMessage,Data
   System messages without a channel.
-Ping / Pong - handled at the transport level if websocket but a system message on httpStreaming
+Ping / Pong - handled at the transport level
 
 Underlying transmission code attempts to minimize the amount encoding by not doing it for every recipient
 Approximate transmission route:
@@ -58,7 +58,7 @@ Properties on program:
     disabled:If Y the system will prevent any connections
 )
 
-(TBC: Ensure no references to firstconnect or lastconnection remain)
+(TBC: Ensure no references to firstconnect, lastconnection or httpstresm remain)
 
 $version 0.0
  
@@ -225,6 +225,7 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
     string @ ensureValidUTF8 string !
     { }list var! descrs
     var session
+    (Check sessions and convert them to descrs)
     sessions @ dup array? not if pop exit then
     foreach nip session !
         connectionsBySession @ session @ array_getitem ?dup if
@@ -244,11 +245,10 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
             _stopLogWarning
         then
     repeat
-    string @ webSocketCreateTextFrameHeader var! frameHeader
     $ifdef trackbandwidth
-        descrs @ array_count string @ strlen frameHeader @ array_count + 2 + * "websocket_out" trackBandwidthCounts
+        descrs @ array_count string @ strlen array_count 2 + * "websocket_out" trackBandwidthCounts
     $endif
-    descrs @ foreach nip frameHeader @ string @ webSocketSendFrame repeat
+    descrs @ string @ webSocketSendTextFrameToDescrs
 ;
 
 : prepareSystemMessage[ str:message ?:data -- str:encoded ]
@@ -623,12 +623,7 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
             _startLogTrivial
                 "Disconnecting still connected descr " sessionDescr @ intostr strcat " associated with " strcat session @ strcat
             _stopLogTrivial
-            connectionType @ "httpstream" stringcmp not if
-                sessionDescr @ "0" descrnotify
-                sessionDescr @ "\r\n" descrnotify (This should output 0\r\n\r\n to close a http stream)
-            else
-                sessionDescr @ "" webSocketCreateClosingFrameHeader "" webSocketSendFrame
-            then
+            { sessionDescr }list webSocketSendCloseFrameToDescrs
             sessionDescr @ descrboot
         then
     else
@@ -747,6 +742,12 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
 		"connectedAt" connectedAt @
 		"session" session @
 	}dict var! sessionDetails
+
+    { descr }list "welcome" 
+	$ifdef trackBandwidth
+		dup strlen 2 + (For \r\n) "websocket_out" trackBandwidthCounts
+	$endif
+    webSocketSendTextFrameToDescrs    
     
 	sessionDetails @ connectionsPending @ descr array_setitem connectionsPending !
 
@@ -820,15 +821,11 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
                     ". Outgoing Pings: " strcat toPing @ array_count intostr strcat
                 _stopLogTrivial
                 toPing @ ?dup if
-                    systime_precise intostr dup webSocketCreatePingFrameHeader swap
-                    (S: ArrayOfDescrs PingFrameHeader PingFramePayload)
+                    systime_precise intostr 
                     $ifdef trackBandwidth
-                        3 pick array_count 3 pick array_count 3 pick strlen 2 + + * "websocket_out" trackBandwidthCounts
+                        over array_count over strlen 2 + * "websocket_out" trackBandwidthCounts
                     $endif
-                    rot foreach nip
-                        3 pick 3 pick webSocketSendFrame
-                    repeat
-                    pop pop
+                    webSocketSendPingFrameToDescrs
                 then
             end
             default
