@@ -375,8 +375,9 @@ export default class Core {
      * @param {boolean} fatal Whether to prevent trying again
      */
     connectionFailed(reason, fatal = false) {
-        this.updateAndDispatchStatus(Core.connectionStates.failed);
         //TODO: 3 tries if it wasn't fatal
+        this.updateAndDispatchStatus(Core.connectionStates.failed);
+        this.connection.disconnect();
         //TODO: Dispatch error only if we've given up or it was fatal
         this.dispatchError(reason);
     }
@@ -399,6 +400,7 @@ export default class Core {
         // Figure out whether we have local storage (And load debug option if so)
         this.localStorageAvailable = 'localStorage' in context;
         if (this.localStorageAvailable && localStorage.getItem('mwiWebsocket-debug') === 'y') this.debug = true;
+        if (this.environment === 'localdevelopment') this.debug = true; // No local storage in localdev
 
         // Work out which connection we're using
         if (this.environment === 'test') this.connection = new ConnectionFaker(this, options);

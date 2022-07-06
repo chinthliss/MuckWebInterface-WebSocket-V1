@@ -104,7 +104,6 @@ export default class ConnectionWebSocket extends Connection {
         this.connection = new WebSocket(this.websocketUrl, 'mwi');
 
         this.connection.onopen = () => {
-            if (this.core.debug) console.log("WebSocket opened.");
             this.core.updateAndDispatchStatus(Core.connectionStates.login);
             this.receivedWelcome = false;
             this.handshakeCompleted = false;
@@ -178,6 +177,7 @@ export default class ConnectionWebSocket extends Connection {
     }
 
     disconnect() {
+        if (this.core.debug) console.log(this.connection !== null ? "Closing websocket." : "No websocket to close.");
         if (this.connection !== null) this.connection.close();
         this.connection = null;
     }
