@@ -15,7 +15,7 @@ Also to allow room to potentially identify improvements to it.
 Present understanding of descrnotify: will append a \r\n AND strip additional trailing ones. Will always trigger a descrflush.
 )
 
-$version 1.1
+$version 1.2
 
 $include $lib/kta/proto
 $include $lib/kta/strings
@@ -35,7 +35,7 @@ $libdef webSocketCreateTextFrameHeader
 $libdef webSocketCreateCloseFrameHeader
 $libdef webSocketCreatePingFrameHeader
 $libdef webSocketCreatePongFrameHeader
-$libdef websocketGetFrameFromIncomingBuffer
+$libdef webSocketGetFrameFromIncomingBuffer
 $libdef webSocketSendFrame
 $libdef webSocketSendTextFrameToDescrs
 $libdef webSocketSendCloseFrameToDescrs
@@ -86,12 +86,14 @@ $def _stopDebugMultipleLines foreach nip getLogPrefix swap strcat logstatus repe
 ; PUBLIC webSocketCreateAcceptKey
 
 (Returns a frame header of the given type. Because of issues converting text from the muck to UTF-8 it returns it as an array of ints)
+(In the case of a close frame, isFinal becomes the status code sent out )
 : webSocketCreateFrameHeader[ int:opCode int:isFinal int:payloadSize -- arr:header ]
     (First byte contains type and whether this is the final frame)
     { opCode @ isFinal @ if 128 bitor then }list
     (Following byte uses first bit to specify if we're masked, which is always 0, then 7 bits of length.)
     (Depending on the size we'll either use 0, 2 or 8 additional bytes)
     payloadSize @ 2 + (Two additional bytes for the /r/n the muck will append)
+    opCode @ 8 = if 2 + then (Two additional bytes for the status code)
     dup 126 < if (Fits in one byte)
         swap array_appenditem
     else swap
@@ -101,15 +103,19 @@ $def _stopDebugMultipleLines foreach nip getLogPrefix swap strcat logstatus repe
             swap 255 bitand swap array_appenditem
         else (Start with 127 then use eight bytes to represent length)
             127 swap array_appenditem
-            over 255 56 bitshift bitand swap array_appenditem
-            over 255 48 bitshift bitand swap array_appenditem
-            over 255 40 bitshift bitand swap array_appenditem
-            over 255 32 bitshift bitand swap array_appenditem
-            over 255 24 bitshift bitand swap array_appenditem
-            over 255 16 bitshift bitand swap array_appenditem
-            over 255  8 bitshift bitand swap array_appenditem
-            swap 255 bitand swap array_appenditem
+            over -56 bitshift 255 bitand swap array_appenditem
+            over -48 bitshift 255 bitand swap array_appenditem
+            over -40 bitshift 255 bitand swap array_appenditem
+            over -32 bitshift 255 bitand swap array_appenditem
+            over -24 bitshift 255 bitand swap array_appenditem
+            over -16 bitshift 255 bitand swap array_appenditem
+            over  -8 bitshift 255 bitand swap array_appenditem
+            swap              255 bitand swap array_appenditem
         then
+    then
+    opCode @ 8 = if
+        isFinal @ -8 bitshift 255 bitand swap array_appenditem
+        isFinal @ 255 bitand swap array_appenditem
     then
 ; PUBLIC webSocketCreateFrameHeader
 
@@ -118,7 +124,7 @@ $def _stopDebugMultipleLines foreach nip getLogPrefix swap strcat logstatus repe
 ; PUBLIC webSocketCreateTextFrameHeader
 
 : webSocketCreateCloseFrameHeader[ str:content -- arr:frameHeader ] (Takes content since the spec says to reflect any provided content in acknowledgements)
-    8 1 content @ strlen webSocketCreateFrameHeader
+    8 1000 content @ strlen webSocketCreateFrameHeader (TODO: Allow actually setting the status code rather than using the default)
 ; PUBLIC webSocketCreateCloseFrameHeader
 
 : webSocketCreatePingFrameHeader[ str:content -- arr:frameHeader ]
@@ -168,7 +174,7 @@ $def _stopDebugMultipleLines foreach nip getLogPrefix swap strcat logstatus repe
     repeat
 ; PUBLIC webSocketSendPongFrameToDescrs
 
-: websocketGetFrameFromIncomingBuffer[ arr:buffer -- int:opCode str:payload arr:remainingBuffer ]
+: webSocketGetFrameFromIncomingBuffer[ arr:buffer -- int:opCode str:payload arr:remainingBuffer ]
    (Quick break down on possible stucture in bytes:)
    (  Frame information)
    (  Masked? bit and length. Length is 7-bits and client will not allow masking to be off for client->server)
@@ -252,7 +258,7 @@ $def _stopDebugMultipleLines foreach nip getLogPrefix swap strcat logstatus repe
       "Unmasked Payload" buffer @ array_count ?dup if "(buffer still has " swap intostr strcat ")" strcat strcat then ": " strcat over strcat
    _stopDebugSingleLine
    opCode @ swap buffer @
-; PUBLIC websocketGetFrameFromIncomingBuffer
+; PUBLIC webSocketGetFrameFromIncomingBuffer
 
 : main
     "This is a library and doesn't provide any direct functionality." .tell
