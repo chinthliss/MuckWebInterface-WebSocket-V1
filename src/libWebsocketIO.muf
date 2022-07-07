@@ -114,19 +114,19 @@ $def _stopDebugMultipleLines foreach nip getLogPrefix swap strcat logstatus repe
 ; PUBLIC webSocketCreateFrameHeader
 
 : webSocketCreateTextFrameHeader[ str:text -- arr:frameHeader ]
-   1 1 text @ strlen webSocketCreateFrameHeader
+    1 1 text @ strlen webSocketCreateFrameHeader
 ; PUBLIC webSocketCreateTextFrameHeader
 
 : webSocketCreateCloseFrameHeader[ str:content -- arr:frameHeader ] (Takes content since the spec says to reflect any provided content in acknowledgements)
-   8 1 content @ strlen webSocketCreateFrameHeader
+    8 1 content @ strlen webSocketCreateFrameHeader
 ; PUBLIC webSocketCreateCloseFrameHeader
 
 : webSocketCreatePingFrameHeader[ str:content -- arr:frameHeader ]
-   9 1 content @ strlen webSocketCreateFrameHeader
+    9 1 content @ strlen webSocketCreateFrameHeader
 ; PUBLIC webSocketCreatePingFrameHeader
 
 : webSocketCreatePongFrameHeader[ str:response -- arr:frameHeader ]
-   10 1 response @ strlen webSocketCreateFrameHeader
+    10 1 response @ strlen webSocketCreateFrameHeader
 ; PUBLIC webSocketCreatePongFrameHeader
 
 : webSocketSendFrame (d:descr a:frameHeader ?:framepayload -- ) (Actually only works with strings but leaving some room for extension)

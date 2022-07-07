@@ -59,7 +59,7 @@ Properties on program:
     disabled:If Y the system will prevent any connections
 )
 
-(TBC: Ensure no references to firstconnect, lastconnection or httpstream remain)
+(TBC: Ensure no references to firstconnect, lastconnection, connectiontype or httpstream remain)
 
 $version 0.0
  
@@ -607,7 +607,6 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
         _stopLogTrivial
         dup "channels" array_getitem var! channels
         dup "descr" array_getitem var! sessionDescr
-        dup "connectionType" array_getitem var! connectionType
         dup "player" array_getitem ?dup not if #-1 else then var! player
         "account" array_getitem var! account
         player @ #-1 dbcmp not if session @ player @ account @ channels @ removePlayerFromSession then
@@ -732,17 +731,37 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
     session @ connectionsBySession @ { session @ "player" }list array_nested_get ?dup not if #-1 then channel @ message @ data @ handleChannelCallbacks
 ;
  
-: handleIncomingStringPacket[ str:session str:packet ]
-    packet @ dup string? not if pop "" then dup strlen 3 > not if "Malformed (or non-string) packet from session " session @ strcat ": " strcat swap strcat logError then
-    3 strcut var! data
-    case
-        "MSG" stringcmp not when (Expected format is Channel, Message, Data)
-            session @ data @ dup "," instr strcut swap dup strlen ?dup if 1 - strcut pop then swap dup "," instr strcut swap dup strlen ?dup if 1 - strcut pop then swap handleIncomingMessage
-        end
-        "SYS" stringcmp not when (Expected format is Message,Data)
-            session @ data @ dup "," instr strcut swap dup strlen ?dup if 1 - strcut pop then swap handleIncomingSystemMessage
-        end
-    endcase
+: handleIncomingTextFrame[ str:session str:payload ]
+    connectionsBySession @ session @ array_getitem ?dup if (Because it may have dropped elsewhere)
+        var! connectionDetails
+        connectionDetails @ "pid" array_getitem pid = if
+            connectionDetails @ "acceptedAt" array_getitem if (Are we still in the handshake?)
+                payload @ dup string? not if pop "" then dup strlen 3 > not if "Malformed (or non-string) payload from session " session @ strcat ": " strcat swap strcat logError then
+                3 strcut var! data
+                case
+                    "MSG" stringcmp not when (Expected format is Channel, Message, Data)
+                        session @ data @ dup "," instr strcut swap dup strlen ?dup if 1 - strcut pop then swap dup "," instr strcut swap dup strlen ?dup if 1 - strcut pop then swap handleIncomingMessage
+                    end
+                    "SYS" stringcmp not when (Expected format is Message,Data)
+                        session @ data @ dup "," instr strcut swap dup strlen ?dup if 1 - strcut pop then swap handleIncomingSystemMessage
+                    end
+                    default
+                        "ERROR: Unrecognized text frame from descr " descr intostr strcat ": " strcat swap strcat logError
+                    end
+                endcase
+            else (Still in handshake)
+                payload @ .tell
+            then        
+        else
+            _startLogWarning
+                "Websocket for descr " descr intostr strcat " received a text frame from a PID that doesn't match the one in its connection details." strcat session @ strcat
+            _stopLogWarning
+        then
+    else
+        _startLogWarning
+            "Received a text frame from descr " descr intostr strcat " but there's no connection details for them. Possibly okay if they were disconnecting at the time."
+        _stopLogWarning
+    then
 ;
 
 : attemptToProcessWebsocketMessage[ session buffer -- bufferRemaining ]
@@ -786,23 +805,7 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
             { }list exit
         end
         129 = when (Text frame, an actual message!)
-            connectionsBySession @ session @ array_getitem ?dup if (Because it may have dropped elsewhere)
-                var! connectionDetails
-                connectionDetails @ "acceptedAt" array_getitem not if
-                    (Still in handshake)
-                    payload @ .tell
-                else
-                    (Actually connected and handle as normal)
-                    connectionDetails @ "pid" array_getitem pid = if
-                        session @ payload @ handleIncomingStringPacket
-                    else
-                    _startLogWarning
-                        "Websocket for descr " descr intostr strcat " received a message whilst not in control of the session " strcat session @ strcat
-                    _stopLogWarning
-                    then
-                    
-                then
-            then
+            session @ payload @ handleIncomingTextFrame (In separate function just for readibility)
         end
         default (This shouldn't happen as we previously check the opcode is one we support)
             "Websocket code didn't know what to do with an opcode: " opCode @ itoh strcat logError
