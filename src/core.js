@@ -189,15 +189,15 @@ export default class Core {
     updateAndDispatchSession(newSession) {
         if (this.session === newSession) return;
         if (this.debug) console.log("Session changed to " + newSession);
-        if (this.session) { //Maybe send join requests?
-            let channelsToJoin = [];
-            for (let channel in this.channels) {
-                if (this.channels.hasOwnProperty(channel) && !this.channels[channel].joined) {
-                    channelsToJoin.push(channel);
-                }
+        this.session = newSession;
+        // Maybe need to send channel join requests?
+        let channelsToJoin = [];
+        for (let channel in this.channels) {
+            if (this.channels.hasOwnProperty(channel) && !this.channels[channel].joined) {
+                channelsToJoin.push(channel);
             }
-            if (channelsToJoin.length > 0) this.sendSystemMessage('joinChannels', channelsToJoin);
         }
+        if (channelsToJoin.length > 0) this.sendSystemMessage('joinChannels', channelsToJoin);
     }
 
     /**

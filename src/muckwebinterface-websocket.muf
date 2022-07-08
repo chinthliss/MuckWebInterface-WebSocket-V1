@@ -59,7 +59,7 @@ Properties on program:
     disabled:If Y the system will prevent any connections
 )
 
-(TBC: Ensure no references to firstconnect, lastconnection, connectiontype or httpstream remain)
+(TBC: Ensure no references to firstconnect, lastconnection, connectiontype, upgrading or httpstream remain)
 
 $version 0.0
  
@@ -749,12 +749,43 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
                         "ERROR: Unrecognized text frame from descr " descr intostr strcat ": " strcat swap strcat logError
                     end
                 endcase
-            else (Still in handshake)
-                payload @ .tell
+            else (Still in handshake - only thing we're expecting is 'auth <token>')
+                payload @ "auth " instring 1 = if
+                    payload @ 5 strcut nip
+                    0
+                    (Token TokenAccepted?)
+                    $ifdef is_dev
+                        over "localdevelopment" stringcmp not if pop 1 then (Allow override for local development in dev only)
+                    $endif
+                    nip if
+                        _startLogTrivial
+                            "Completed handshake for descr " descr intostr strcat "." strcat
+                        _stopLogTrivial
+                        systime_precise connectionDetails @ "acceptedAt" array_setitem connectionDetails !
+                        
+                        (TBC: Handle actually connecting)
+                        connectionDetails @ connectionsBySession @ session @ array_setitem connectionsBySession !
+                        
+                        (Notify connection)
+                        { descr }list "session " session @ strcat
+                        $ifdef trackBandwidth
+                            dup strlen 2 + (For \r\n) "websocket_out" trackBandwidthCounts
+                        $endif
+                        webSocketSendTextFrameToDescrs
+                    else
+                        _startLogWarning
+                            "Websocket for descr " descr intostr strcat " gave an auth token that wasn't accepted: " strcat payload @ 5 strcut nip strcat
+                        _stopLogWarning
+                    then
+                else
+                    _startLogWarning
+                        "Websocket for descr " descr intostr strcat " sent the following text instead of the expected auth request: " strcat payload @ strcat
+                    _stopLogWarning
+                then
             then        
         else
             _startLogWarning
-                "Websocket for descr " descr intostr strcat " received a text frame from a PID that doesn't match the one in its connection details." strcat session @ strcat
+                "Websocket for descr " descr intostr strcat " received a text frame from a PID that doesn't match the one in its connection details: " strcat payload @ strcat
             _stopLogWarning
         then
     else
@@ -787,7 +818,7 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
         end
         137 = when (Ping request, need to reply with pong)
             _startLogPacket
-                "Websocket Ping request."
+                "Websocket Ping request received."
             _stopLogPacket
             payload @ dup webSocketCreatePongFrameHeader swap
             $ifdef trackBandwidth
@@ -798,7 +829,7 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
         138 = when (Pong reply to a ping we sent - the packet should be the systime_precise we sent it at)
             payload @ strtof ?dup if
                 _startLogPacket
-                    "Websocket Ping Response."
+                    "Websocket Poing response received."
                 _stopLogPacket
                 session @ swap handlePingResponse
             then
@@ -1109,3 +1140,6 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
 .
 c
 q
+
+!!@qmuf .debug-off "$www/mwi/websocket" match "getsessions" call $include $lib/kta/proto arrayDump
+!!@qmuf .debug-off "$www/mwi/websocket" match "getcaches" call $include $lib/kta/proto "AccountsSessionsByChannel" .tell arrayDump "PlayersSessionsByChannel" .tell arrayDump "SessionsByPlayer" .tell arrayDump "SessionsByChannel" .tell arrayDump
