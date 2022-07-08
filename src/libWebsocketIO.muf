@@ -190,6 +190,10 @@ $def _stopDebugMultipleLines foreach nip getLogPrefix swap strcat logstatus repe
    (  Mask 2/4)
    (  Mask 3/4)
    (  Mask 4/4)
+
+    _startDebug
+        "Investigating incoming websocket data: " buffer @ foreach nip itoh strcat " " strcat repeat
+    _stopDebugSingleLine
    
    (Check we support this)
    buffer @ 0 array_getitem var! opCode

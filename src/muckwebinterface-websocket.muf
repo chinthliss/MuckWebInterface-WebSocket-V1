@@ -175,6 +175,7 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
     "Session " details @ "session" array_getitem dup not if pop "[NOSESSIONID]" then strcat "[" strcat
         "Descr:" details @ "descr" array_getitem intostr strcat strcat
         ", PID:" details @ "pid" array_getitem intostr strcat strcat
+        ", Account:" details @ "account" array_getitem ?dup not if "-UNSET-" else intostr then strcat strcat        
         ", Player:" details @ "player" array_getitem ?dup not if "-UNSET-" else dup ok? if name else pop "-INVALID-" then then strcat strcat
     "]" strcat
 ;
@@ -751,31 +752,41 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
                 endcase
             else (Still in handshake - only thing we're expecting is 'auth <token>')
                 payload @ "auth " instring 1 = if
-                    payload @ 5 strcut nip
-                    0
-                    (Token TokenAccepted?)
-                    $ifdef is_dev
-                        over "localdevelopment" stringcmp not if pop 1 then (Allow override for local development in dev only)
-                    $endif
-                    nip if
-                        _startLogTrivial
-                            "Completed handshake for descr " descr intostr strcat "." strcat
-                        _stopLogTrivial
-                        systime_precise connectionDetails @ "acceptedAt" array_setitem connectionDetails !
+                    payload @ 5 strcut nip var! token
+                    prog "@tokens/" token @ strcat propdir? if
+                        systime_precise connectionDetails @ "acceptedAt" array_setitem connectionDetails !                    
                         
-                        (TBC: Handle actually connecting)
+                        prog "@tokens/" token @ strcat "/account" strcat getprop
+                        ?dup if connectionDetails @ "account" array_setitem connectionDetails ! then
+                        
+                        prog "@tokens/" token @ strcat "/player" strcat getprop dup dbref? not if pop #-1 then
+                        (Don't set player as we have a dedicated function for it - but make sure we save the present session first)
                         connectionDetails @ connectionsBySession @ session @ array_setitem connectionsBySession !
+                        session @ swap handleSetPlayer
                         
+                        _startLogTrivial
+                            "Completed handshake for descr " descr intostr strcat " as: " strcat session @ sessionToString strcat
+                        _stopLogTrivial
+
                         (Notify connection)
                         { descr }list "session " session @ strcat
                         $ifdef trackBandwidth
                             dup strlen 2 + (For \r\n) "websocket_out" trackBandwidthCounts
                         $endif
+                        _startLogPacket
+                            "Informing descr " descr intostr strcat " of session: " strcat session @ strcat
+                        _stopLogPacket
                         webSocketSendTextFrameToDescrs
+                    
+                        prog "@tokens/" token @ strcat "/" strcat removepropdir
                     else
                         _startLogWarning
-                            "Websocket for descr " descr intostr strcat " gave an auth token that wasn't accepted: " strcat payload @ 5 strcut nip strcat
+                            "Websocket for descr " descr intostr strcat " gave an auth token that wasn't valid: " strcat payload @ 5 strcut nip strcat
                         _stopLogWarning
+                        _startLogPacket
+                            "Informing descr " descr intostr strcat " of token rejection." strcat
+                        _stopLogPacket                        
+                        { descr }list "invalidtoken" webSocketSendTextFrameToDescrs
                     then
                 else
                     _startLogWarning
@@ -844,16 +855,6 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
     endcase
     (In case there were multiple, we need to try to process another)
     buffer @ dup if session @ swap attemptToProcessWebsocketMessage then
-  
-    (TBC PROCESS CLIENT)
-	(TBC: Need to call handleSetPlayer later, when player is set!)
-	(
-    _startLogPacket
-		"Descr " descr intostr strcat " now associated with " strcat sessionDetails @ sessionDetailsToString strcat
-	_stopLogPacket
-    )
-	(TBC: Need clientProcess routines for connecting and established connections)
-    
 ;
 
 : clientProcess[ clientSession -- ]
@@ -875,9 +876,6 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
                 0 keepGoing !
             end
             "HTTP.input_raw" stringcmp not when (Possible websocket data!)
-                _startLogPacket
-                    "Incoming websocket data: " eventArguments @ foreach nip itoh strcat " " strcat repeat
-                _stopLogPacket
                 buffer @
                 dup array_count eventArguments @ array_insertrange
                 clientSession @ swap attemptToProcessWebsocketMessage

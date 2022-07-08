@@ -145,8 +145,13 @@ export default class ConnectionWebSocket extends Connection {
                         this.sendString(this.connectingOutgoingMessageBuffer[i]);
                     }
                     this.connectingOutgoingMessageBuffer = [];
-
-                } else console.log("Mwi-Websocket Error - WebSocket got an unexpected message whilst expecting session: " + message);
+                    return;
+                }
+                if (message === 'invalidtoken') {
+                    this.core.connectionFailed("Server refused authentication token.");
+                    return;
+                }
+                console.log("Mwi-Websocket Error - WebSocket got an unexpected message whilst expecting session: " + message);
                 return;
             }
             console.log("Unexpected message during login: " + message);
@@ -179,7 +184,7 @@ export default class ConnectionWebSocket extends Connection {
 
     disconnect() {
         if (this.core.debug) console.log(this.connection !== null ? "Closing websocket." : "No websocket to close.");
-        if (this.connection !== null) this.connection.close();
+        if (this.connection !== null) this.connection.close(1000, "Disconnected");
         this.connection = null;
     }
 
