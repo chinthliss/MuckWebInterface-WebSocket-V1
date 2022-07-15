@@ -3,6 +3,7 @@
 !!@reg muckwebinterface-websocket.muf=www/mwi/websocket
 !!@set $www/mwi/websocket=W4
 !!@set $www/mwi/websocket=L
+!!@set $www/mwi/websocket=A
 !!@set $www/mwi/websocket=_type:noheader
 !!@action websocket=#0,$www/mwi/websocket
 !!@propset $www=dbref:_/www/mwi/ws:$www/mwi/websocket
@@ -71,6 +72,25 @@ $include $lib/account
 $include $lib/websocketIO
 
 $pubdef : (Clear present _defs)
+
+$libdef websocketIssueAuthenticationToken
+$libdef getSessions
+$libdef getCaches
+$libdef getDescrs
+$libdef getBandwidthCounts
+$libdef connectionsFromPlayer
+$libdef playerUsingChannel?
+$libdef playersOnChannel
+$libdef playersOnWeb
+$libdef setSessionProperty
+$libdef getSessionProperty
+$libdef delSessionProperty
+$libdef sendToSessions
+$libdef sendToSession
+$libdef sendToChannel
+$libdef sendToPlayer
+$libdef sendToPlayers
+$libdef sendToAccount
 
 $def allowCrossDomain 1        (Whether to allow cross-domain connections. This should only really be on during testing/development.)
 $def heartbeatTime 2           (How frequently the heartbeat event triggers)
@@ -185,12 +205,6 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
     connectionsBySession @ session @ array_getitem sessionDetailsToString
 ;
 
-  (Whether session is valid and connected)
-: isSession?[ str:session -- bool:result ]
-    connectionsBySession @ session @ array_getitem if 1 else 0 then
-; PUBLIC isSession? 
-
-
 : ensureInit
     (Ensures variables are configured and server daemon is running)
     connectionsBySession @ dictionary? not if
@@ -219,6 +233,70 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
    (mysql_uuid) ($lib/mysql)
    (get_uuid) ($lib/uuid)
 ;
+
+: websocketIssueAuthenticationToken[ aid:account dbref?:character -- str:token ]
+    systime_precise intostr "-" "." subst "-" strcat random 1000 % intostr base64encode strcat var! token
+    prog "@tokens/" token @ strcat "/issued" strcat systime setprop
+    prog "@tokens/" token @ strcat "/account" strcat account @ setprop
+    character @ if 
+        prog "@tokens/" token @ strcat "/character" strcat character @ setprop
+    then
+    token @
+; wizcall websocketIssueAuthenticationToken
+
+  (Quicker way to check to see if a player is using the connection framework)
+: connectionsFromPlayer[ dbref:player -- int:connections ]
+  player @ player? not if "Invalid Arguments" abort then
+  sessionsByPlayer @ player @ int array_getitem ?dup if array_count else 0 then
+; PUBLIC connectionsFromPlayer 
+ 
+  (Quicker function to verify if a player has a session on the given channel)
+: playerUsingChannel?[ dbref:player str:channel -- int:bool ]
+   playersSessionsByChannel @ channel @ array_getitem ?dup if
+      player @ int array_getitem if 1 else 0 then
+   else 0 then
+; PUBLIC playerUsingChannel? 
+ 
+  (Returns a list of players on the given channel.)
+: playersOnChannel[ str:channel -- list:players ]
+   { }list
+   playersSessionsByChannel @ channel @ array_getitem ?dup if
+      foreach pop dbref
+         dup ok? if swap array_appenditem else pop then (In case a player has been deleted but a session hasn't timed out)
+      repeat
+   then
+; PUBLIC playersOnChannel 
+ 
+  (Returns a list of everyone connected)
+: playersOnWeb[ -- list:players ]
+  { }list
+  sessionsByPlayer @ foreach pop dbref
+    dup ok? if swap array_appenditem else pop then (In case a player has been deleted but a session hasn't timed out)
+  repeat
+; PUBLIC playersOnWeb 
+
+: setSessionProperty[ str:session str:property any:data -- ]
+  session @ string? property @ string? AND not if "setSessionProperty: Invalid arguments" abort then
+  connectionsBySession @ session @ array_getitem ?dup not if exit then
+  (S: sessionDetails)
+  dup "properties" array_getitem data @ swap property @ array_setitem
+  swap "properties" array_setitem connectionsBySession @ session @ array_setitem connectionsBySession !
+; PUBLIC setSessionProperty 
+ 
+: getSessionProperty[ str:session str:property -- any:data ]
+  session @ string? property @ string? AND not if "getSessionProperty: Invalid arguments" abort then
+  connectionsBySession @ session @ array_getitem ?dup not if 0 exit then
+  (S: sessionDetails)
+  "properties" array_getitem property @ array_getitem
+; PUBLIC getSessionProperty 
+ 
+: delSessionProperty[ str:session str:property -- ]
+  session @ string? property @ string? AND not if "delSessionProperty: Invalid arguments" abort then
+  connectionsBySession @ session @ array_getitem ?dup not if exit then
+  (S: sessionDetails)
+  dup "properties" array_getitem property @ array_delitem
+  swap "properties" array_setitem connectionsBySession @ session @ array_setitem connectionsBySession !
+; PUBLIC delSessionProperty 
 
 : dispatchStringToSessions[ arr:sessions str:string -- ]
     string @ ensureValidUTF8 string !
@@ -349,7 +427,7 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
     account @ not if "Account can't be blank" abort then
     message @ "" stringcmp not if "Message can't be blank" abort then
     channel @ "" stringcmp not if "Channel can't be blank" abort then
-    accountsSessionsByChannel @ { channel @ account @ int }list array_nested_get
+    accountsSessionsByChannel @ { channel @ account @ }list array_nested_get
     ?dup if
         channel @ message @ data @ sendMessageToSessions
     then
@@ -447,15 +525,16 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
             swap player @ int array_setitem
             playersSessionsByChannel @ channel @ array_setitem playersSessionsByChannel !
         else pop pop then
-        (Cache - accountsSessionsByChannel)
-        accountsSessionsByChannel @ channel @ array_getitem ?dup not if { }dict then (ListForChannel)
-        dup account @ array_getitem ?dup not if { }list 1 announceAccount ! then (ListForChannel ListForPlayer)
-        dup session @ array_findval not if
-            session @ swap array_appenditem
-            swap account @ array_setitem
-            accountsSessionsByChannel @ channel @ array_setitem accountsSessionsByChannel !
-        else pop pop then
     then
+    (Cache - accountsSessionsByChannel)
+    accountsSessionsByChannel @ channel @ array_getitem ?dup not if { }dict then (ListForChannel)
+    dup account @ array_getitem ?dup not if { }list 1 announceAccount ! then (ListForChannel ListForPlayer)
+    dup session @ array_findval not if
+        session @ swap array_appenditem
+        swap account @ array_setitem
+        accountsSessionsByChannel @ channel @ array_setitem accountsSessionsByChannel !
+    else pop pop then
+
     (Do external announcements first, since internal ones may cause callbacks to send messages out of order)
     announceSession @ if
         session @ channel @ "sessionConnected" systime sendToSession
@@ -484,16 +563,16 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
 ;
 
 (Removes from channel, updates appropriate caches and does player/account announcements if required)
-(Should probably only be called from removePlayerFromSession?)
+(Should probably only be called from removePlayerAndAccountFromSession?)
 (Used retroactively - should NOT actually refer to sessionDetails as the reference may be out of date or gone.)
 (Player may be a non-valid object reference from it being deleted)
-: removePlayerSessionFromChannel[ str:session dbref:player int:account str:channel  -- ]
-    _startLogTrivial
-        "Removing Player:Session " player @ unparseobj strcat ":" strcat session @ strcat " from channel " strcat channel @ strcat
-    _stopLogTrivial
+: removeSessionsPlayerAndAccountFromChannel[ str:session dbref:player int:account str:channel  -- ]
     0 var! announcePlayer
     0 var! announceAccount
     player @ #-1 dbcmp not if ( Player could have been deleted so can't use ok? here)
+        _startLogTrivial
+            "Removing Player:Session " player @ unparseobj strcat ":" strcat session @ strcat " from channel " strcat channel @ strcat
+        _stopLogTrivial
         (Cache - playersSessionsByChannel)
         playersSessionsByChannel @ channel @ array_getitem ?dup if (ListByPlayersSessions)
             dup player @ int array_getitem ?dup if (ChannelPlayerSessionList PlayerSessionList)
@@ -515,28 +594,32 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
                 else pop pop then
             else pop then
         then
-        (Cache - accountsSessionsByChannel)
-        accountsSessionsByChannel @ channel @ array_getitem ?dup if (ListByAccountsSessions)
-            dup account @ array_getitem ?dup if (ChannelAccountSessionList AccountSessionList)
-                dup session @ array_findval ?dup if
-                    foreach nip array_delitem repeat (ChannelAccountSessionList AccountSessionList SessionList)
-                    ?dup if
-                        swap account @ array_setitem
-                    else
-                        account @ array_delitem
-                        1 announceAccount ! (Last instance of account on channel)
-                    then
-                    (ChannelAccountSessionList AccountSessionList)
-                    ?dup if
-                        accountsSessionsByChannel @ channel @ array_setitem
-                    else
-                        accountsSessionsByChannel @ channel @ array_delitem
-                    then
-                    accountsSessionsByChannel !
-                else pop pop then
-            else pop then
-        then
     then
+    _startLogTrivial
+        "Removing Account:Session " account @ intostr strcat ":" strcat session @ strcat " from channel " strcat channel @ strcat
+    _stopLogTrivial
+    (Cache - accountsSessionsByChannel)
+    accountsSessionsByChannel @ channel @ array_getitem ?dup if (ListByAccountsSessions)
+        dup account @ array_getitem ?dup if (ChannelAccountSessionList AccountSessionList)
+            dup session @ array_findval ?dup if
+                foreach nip array_delitem repeat (ChannelAccountSessionList AccountSessionList SessionList)
+                ?dup if
+                    swap account @ array_setitem
+                else
+                    account @ array_delitem
+                    1 announceAccount ! (Last instance of account on channel)
+                then
+                (ChannelAccountSessionList AccountSessionList)
+                ?dup if
+                    accountsSessionsByChannel @ channel @ array_setitem
+                else
+                    accountsSessionsByChannel @ channel @ array_delitem
+                then
+                accountsSessionsByChannel !
+            else pop pop then
+        else pop then
+    then
+
     announcePlayer @ if
         session @ player @ channel @ "playerExitedChannel" player @ handleChannelCallbacks
     then
@@ -548,11 +631,11 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
 (Handles the non-channel specific removal parts of a player)
 (Used retroactively - should NOT actually refer to sessionDetails as the reference may be out of date or gone.)
 (Player may be a non-valid object reference from it being deleted)
-: removePlayerFromSession[ str:session dbref:player int:account array:channels -- ]
+: removePlayerAndAccountFromSession[ str:session dbref:player int:account array:channels -- ]
     _startLogTrivial
         "Removing Player " player @ unparseobj strcat " from " strcat " session " strcat session @ strcat
     _stopLogTrivial
-    channels @ foreach nip session @ player @ account @ 4 rotate removePlayerSessionFromChannel repeat
+    channels @ foreach nip session @ player @ account @ 4 rotate removeSessionsPlayerAndAccountFromChannel repeat
     sessionsByPlayer @ player @ int array_getitem
     ?dup if
         dup session @ array_findval ?dup if
@@ -578,7 +661,7 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
 ;
 
 (Removes from channel, updates appropriate caches and does session/player/account announcements if required)
-(Doesn't handle player:session and account:session so should be called after removePlayerFromSession.)
+(Doesn't handle player:session and account:session so should be called after removePlayerAndAccountFromSession.)
 : removeSessionFromChannel[ str:session dbref:player str:channel -- ]
     0 var! announceSession
     (Cache - sessionsByChannel)
@@ -610,7 +693,7 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
         dup "descr" array_getitem var! sessionDescr
         dup "player" array_getitem ?dup not if #-1 else then var! player
         "account" array_getitem var! account
-        player @ #-1 dbcmp not if session @ player @ account @ channels @ removePlayerFromSession then
+        session @ player @ account @ channels @ removePlayerAndAccountFromSession
         channels @ ?dup if
             foreach nip session @ player @ rot removeSessionFromChannel repeat
         then
@@ -637,7 +720,7 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
         "account" array_getitem var! oldAccount
         oldPlayer @ #-1 dbcmp not if (Could possibly split this out as this will remove the account:session reference then reset it and potentially trigger disconnect/connect message)
             oldplayer @ player @ dbcmp if exit then
-            session @ oldPlayer @ oldAccount @ channels @ removePlayerFromSession
+            session @ oldPlayer @ oldAccount @ channels @ removePlayerAndAccountFromSession
         then
         _startLogTrivial
             "Setting player of session " session @ strcat " to " strcat player @ unparseobj strcat
@@ -753,14 +836,20 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
             else (Still in handshake - only thing we're expecting is 'auth <token>')
                 payload @ "auth " instring 1 = if
                     payload @ 5 strcut nip var! token
+                    _startLogTrivial
+                        "Received auth token '" token @ strcat "' for descr " strcat descr intostr strcat
+                    _stopLogTrivial                      
                     prog "@tokens/" token @ strcat propdir? if
                         systime_precise connectionDetails @ "acceptedAt" array_setitem connectionDetails !                    
+                        _startLogTrivial
+                            "Accepted auth token '" token @ strcat "' for descr " strcat descr intostr strcat
+                        _stopLogTrivial                      
                         
                         prog "@tokens/" token @ strcat "/account" strcat getprop
                         ?dup if connectionDetails @ "account" array_setitem connectionDetails ! then
                         
-                        prog "@tokens/" token @ strcat "/player" strcat getprop dup dbref? not if pop #-1 then
-                        (Don't set player as we have a dedicated function for it - but make sure we save the present session first)
+                        prog "@tokens/" token @ strcat "/character" strcat getprop dup dbref? not if pop #-1 then
+                        (Don't set player manually as we have a dedicated function for it - but make sure we save the present session first)
                         connectionDetails @ connectionsBySession @ session @ array_setitem connectionsBySession !
                         session @ swap handleSetPlayer
                         
@@ -778,7 +867,8 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
                         _stopLogPacket
                         webSocketSendTextFrameToDescrs
                     
-                        prog "@tokens/" token @ strcat "/" strcat removepropdir
+                        (TODO: Re-enable token clearup)
+                        (prog "@tokens/" token @ strcat "/" strcat removepropdir)
                     else
                         _startLogWarning
                             "Websocket for descr " descr intostr strcat " gave an auth token that wasn't valid: " strcat payload @ 5 strcut nip strcat
@@ -1141,3 +1231,4 @@ q
 
 !!@qmuf .debug-off "$www/mwi/websocket" match "getsessions" call $include $lib/kta/proto arrayDump
 !!@qmuf .debug-off "$www/mwi/websocket" match "getcaches" call $include $lib/kta/proto "AccountsSessionsByChannel" .tell arrayDump "PlayersSessionsByChannel" .tell arrayDump "SessionsByPlayer" .tell arrayDump "SessionsByChannel" .tell arrayDump
+!!@qmuf 3989 0 "$www/mwi/websocket" match "websocketIssueAuthenticationToken" call
