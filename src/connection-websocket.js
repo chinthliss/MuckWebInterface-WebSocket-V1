@@ -161,13 +161,6 @@ export default class ConnectionWebSocket extends Connection {
 
     connect() {
         //Step 1 - we need to get an authentication token from the webpage
-        if (this.core.environment === 'localdevelopment')
-        {
-            //Skip authentication for localdevelopment
-            console.log("Skipping getting websocketToken for local development.");
-            this.openWebsocket('localdevelopment');
-            return;
-        }
         let websocketToken;
         if (this.core.debug) console.log("Mwi-Websocket Requesting authentication token from webpage");
         axios.get(this.authenticationUrl)
