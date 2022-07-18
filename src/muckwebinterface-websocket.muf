@@ -992,7 +992,9 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
 : handleClientConnecting
 	descr descr? not if exit then (Connections can be dropped immediately)
 	prog "disabled" getpropstr "Y" instring if
-		descr "HTTP/1.1 503 Service Unavailable\r\n" descrnotify descr "\r\n" descrnotify exit
+		descr "HTTP/1.1 503 Service Unavailable\r\n" descrnotify 
+        descr "\r\n" descrnotify (This should only send one \r\n)
+        exit
 	then
 	systime var! connectedAt
 	event_wait pop var! rawWebData
@@ -1000,9 +1002,11 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
 	(Ensure correct protocol version)
 	rawWebData @ { "data" "CGIdata" "protocolVersion" 0 }list array_nested_get ?dup not if "" then
 	protocolVersion stringcmp if
-		descr "HTTP/1.1 400 Bad Request\r\n" descrnotify descr "\r\n" descrnotify
-		descr "\r\n" descrnotify (This should only send only \r\n)
-		descr "MWI-Websocket client is out of date, the muck expected a higher version." descrnotify
+		_startLogWarning
+			"Rejected new WebSocket connection from descr " descr intostr strcat " due to it being the wrong protocol version" strcat
+		_stopLogWarning
+		descr "HTTP/1.1 426 Upgrade Required\r\n" descrnotify
+		descr "\r\n" descrnotify (This should only send one \r\n)
 		exit
 	then
 	

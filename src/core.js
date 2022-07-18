@@ -89,6 +89,12 @@ export default class Core {
     connection = null;
 
     /**
+     * Timeout handler for trying to reconnect if things weren't fatal
+     * @type {number}
+     */
+    connectionRetry = -1;
+
+    /**
      * Presently active channels, indexed by channel name
      * @type {Object.<string, Channel>}
      */
@@ -292,11 +298,6 @@ export default class Core {
             this.receivedSystemMessage(message, data);
             return;
         }
-        if (incoming === 'upgraded') {
-            if (this.debug) console.log("Mwi-Websocket received notification on HttpStream that upgrade has occurred.");
-            //We don't actually do anything here, the websocket will also receive this notification and react.
-            return;
-        }
         console.log("Mwi-Websocket ERROR: Don't know what to do with the string: " + incoming);
     };
 
@@ -375,11 +376,18 @@ export default class Core {
      * @param {boolean} fatal Whether to prevent trying again
      */
     connectionFailed(reason, fatal = false) {
-        //TODO: 3 tries if it wasn't fatal
         this.updateAndDispatchStatus(Core.connectionStates.failed);
-        this.connection.disconnect();
-        //TODO: Dispatch error only if we've given up or it was fatal
-        this.dispatchError(reason);
+        // Start again unless the problem was fatal
+        if (fatal) {
+            this.dispatchError(reason);
+            console.log("Fatal Error, cancelling any further attempt to connect.");
+        } else {
+            if (this.connectionRetry === -1) {
+                this.connectionRetry = setTimeout(this.startConnection.bind(this), 1000);
+                if (this.debug) console.log("Queueing retry");
+                this.connection.connect();
+            }
+        }
     }
 
     /**
@@ -427,6 +435,7 @@ export default class Core {
      */
     startConnection() {
         if (this.debug) console.log("Starting connection.");
+        this.connectionRetry = -1;
         this.updateAndDispatchStatus(Core.connectionStates.connecting);
         this.updateAndDispatchSession('');
         this.updateAndDispatchPlayer(-1, '');
