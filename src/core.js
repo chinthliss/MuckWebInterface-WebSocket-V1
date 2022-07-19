@@ -121,6 +121,22 @@ export default class Core {
     }
 
     /**
+     * Utility function to format errors
+     * @param {string} message
+     */
+    logError(message) {
+        console.log("Mwi-Websocket ERROR: " + message);
+    }
+
+    /**
+     * Utility function to format debug lines and omit if disabled
+     * @param {string} message
+     */
+    logDebug(message) {
+        if (this.debug) console.log("Mwi-Websocket DEBUG: " + message);
+    }
+
+    /**
      * Send a message over the specified channel. Data will be parsed to JSON.
      * @param {string} channel
      * @param {string} message
@@ -194,7 +210,7 @@ export default class Core {
      */
     updateAndDispatchSession(newSession) {
         if (this.session === newSession) return;
-        if (this.debug) console.log("Session changed to " + newSession);
+        this.logDebug(newSession ? "Session changed to " + newSession : "Session cleared.");
         this.session = newSession;
         // Maybe need to send channel join requests?
         let channelsToJoin = [];
@@ -215,7 +231,7 @@ export default class Core {
         if (this.playerDbref === newDbref && this.playerName === newName) return;
         this.playerDbref = newDbref;
         this.playerName = newName;
-        if (this.debug) console.log("Player changed: " + newName + '(' + newDbref + ')');
+        this.logDebug("Player changed: " + newName + '(' + newDbref + ')');
         for (let i = 0, maxi = this.playerChangedHandlers.length; i < maxi; i++) {
             try {
                 this.playerChangedHandlers[i](newDbref, newName);
@@ -231,7 +247,7 @@ export default class Core {
      */
     updateAndDispatchStatus(newStatus) {
         if (this.connectionStatus === newStatus) return;
-        if (this.debug) console.log('Connection status changed to ' + newStatus + ' (from ' + this.connectionStatus + ')');
+        this.logDebug('Connection status changed to ' + newStatus + ' (from ' + this.connectionStatus + ')');
         this.connectionStatus = newStatus;
         for (let i = 0, maxi = this.statusChangedHandlers.length; i < maxi; i++) {
             try {
@@ -242,11 +258,10 @@ export default class Core {
     };
 
     /**
-     *
      * @param {string} error
      */
-    dispatchError(error) {
-        console.log("Mwi-Websocket Error reported: " + error);
+    dispatchCriticalError(error) {
+        console.log("Mwi-Websocket Critical Error reported: " + error);
         for (let i = 0, maxi = this.errorHandlers.length; i < maxi; i++) {
             try {
                 this.errorHandlers[i](error);
@@ -268,12 +283,12 @@ export default class Core {
                 [, channel, message, dataAsJson] = incoming.match(Core.msgRegExp);
                 data = (dataAsJson === '' ? null : JSON.parse(dataAsJson));
             } catch (e) {
-                console.log("Mwi-Websocket ERROR: Failed to parse string as incoming message: " + incoming);
-                console.log("Mwi-Websocket Copy of actual error: ", e);
+                this.logError("Failed to parse string as incoming message: " + incoming);
+                console.log(e);
                 return;
             }
             if (message === '') {
-                console.log("Mwi-Websocket ERROR: Incoming message had an empty message: " + incoming);
+                this.logError("Incoming message had an empty message: " + incoming);
                 return;
             }
             if (this.debug) console.log("[ << " + channel + "." + message + "] ", data);
@@ -287,18 +302,18 @@ export default class Core {
                 [, message, dataAsJson] = incoming.match(Core.sysRegExp);
                 data = (dataAsJson === '' ? null : JSON.parse(dataAsJson));
             } catch (e) {
-                console.log("Mwi-Websocket ERROR: Failed to parse string as incoming system message: " + incoming);
+                this.logError("Failed to parse string as incoming system message: " + incoming);
                 return;
             }
             if (message === '') {
-                console.log("Mwi-Websocket ERROR: Incoming system message had an empty message: " + incoming);
+                this.logError("Incoming system message had an empty message: " + incoming);
                 return;
             }
             if (this.debug) console.log("[ << " + message + "] ", data);
             this.receivedSystemMessage(message, data);
             return;
         }
-        console.log("Mwi-Websocket ERROR: Don't know what to do with the string: " + incoming);
+        this.logError("Don't know what to do with the string: " + incoming);
     };
 
     /**
@@ -310,7 +325,7 @@ export default class Core {
         switch (message) {
             case 'channel':
                 if (data in this.channels) this.channels[data].joined = true;
-                else console.log("Mwi-Websocket ERROR: Muck acknowledged joining a channel we weren't aware of! Channel: " + data);
+                else this.logError("Muck acknowledged joining a channel we weren't aware of! Channel: " + data);
                 break;
             case 'test':
                 console.log("Mwi-Websocket Test message received. Data=", data);
@@ -319,7 +334,7 @@ export default class Core {
                 this.sendSystemMessage('pong', data);
                 break;
             default:
-                console.log("Mwi-Websocket ERROR: Unrecognized system message received: " + message);
+                this.logError("Unrecognized system message received: " + message);
         }
     };
 
@@ -332,7 +347,7 @@ export default class Core {
     receivedMessage(channelName, message, data) {
         let channel = this.channels[channelName];
         if (!(channel instanceof Channel)) {
-            if (this.debug) console.log("Received message on channel we're not aware of! Channel = " + channelName);
+            this.logError("Received message on channel we're not aware of! Channel = " + channelName);
             return;
         }
         channel.receiveMessage.bind(channel)(message, data);
@@ -379,12 +394,12 @@ export default class Core {
         this.updateAndDispatchStatus(Core.connectionStates.failed);
         // Start again unless the problem was fatal
         if (fatal) {
-            this.dispatchError(reason);
+            this.dispatchCriticalError(reason);
             console.log("Fatal Error, cancelling any further attempt to connect.");
         } else {
             if (this.connectionRetry === -1) {
                 this.connectionRetry = setTimeout(this.startConnection.bind(this), 1000);
-                if (this.debug) console.log("Queueing retry");
+                this.logDebug("Queueing retry");
                 this.connection.connect();
             }
         }
@@ -398,6 +413,11 @@ export default class Core {
      * @param {object} options
      */
     init(options = {}) {
+
+        if (this.connection) {
+            this.logError("Attempt to run init() when initialisation has already taken place.");
+            return;
+        }
         // Previously this was a test to find something in order of self, window, global
         let context = globalThis;
 
@@ -434,7 +454,7 @@ export default class Core {
      * Starts the attempts to connect.
      */
     startConnection() {
-        if (this.debug) console.log("Starting connection.");
+        this.logDebug("Starting connection.");
         this.connectionRetry = -1;
         this.updateAndDispatchStatus(Core.connectionStates.connecting);
         this.updateAndDispatchSession('');
