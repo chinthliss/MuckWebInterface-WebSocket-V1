@@ -13,9 +13,10 @@
 i
 
 ( 
-A program to provide websocket functionality between the muck and a web client.
+A program to provide websocket functionality between the muck and a webpage via a websocket.
+It provides functionality to support the webpage, it is NOT the program that handles the direct webclient.
 
-This version works on top of the MuckWebInterface and is simplified since it doesn't require a HTTP stream.
+This version works on top of the MuckWebInterface and is greatly simplified from the previous version since it doesn't require a HTTP stream.
  
 The initial connection requires a 'token' that is retrieved from the main webpage, ensuring it handles authentication.
 
@@ -28,11 +29,9 @@ On each message the program looks for functions on registered programs in the fo
 These functions are called with the arguments 'channel, message, session, player, data'; Player may be #-1.
 
 Communication is sent in the form of a three letter code prefixing the line. Message formats used:
-MSGChannel,Message,Data
-  Standard message sent over a channel. Data is JSON encoded
-SYSMessage,Data
-  System messages without a channel.
-Ping / Pong - handled at the transport level
+MSGChannel,Message,Data       Standard message sent over a channel. Data is JSON encoded
+SYSMessage,Data               System messages without a channel.
+Ping / Pong                   Handled at the transport level
 
 Underlying transmission code attempts to minimize the amount encoding by not doing it for every recipient
 Approximate transmission route:
@@ -104,12 +103,11 @@ $ifdef is_dev
 $endif
 
 (Log levels:
-   Error
+   Error   - Always output
    Notice  - Always output, core things
    Warning - Things that could be an error but might not be
-   Info - Information above the individual session level, e.g. player or channel
-   Trivial - Inner process information on an individual session level
-   Packet - Really low level stuff such as building messages for ports
+   Info    - Information above the individual session level, e.g. player or channel
+   Debug   - Inner process information on an individual session level, often spammy
 )
 $def debugLevelWarning 1
 $def debugLevelInfo 2
@@ -119,17 +117,14 @@ $def debugLevelAll 4
 (Rest of the logs are optional depending on if they're turned on and thus behind gates to save processing times)
 (For readibility the code between them should be indented)
 $def _startLogWarning debugLevel @ debugLevelWarning >= if
-$def _stopLogWarning "Warn" getLogPrefix swap strcat logstatus then
+$def _stopLogWarning " Warn" getLogPrefix swap strcat logstatus then
  
 $def _startLogInfo debugLevel @ debugLevelInfo >= if
-$def _stopLogInfo "Info" getLogPrefix swap strcat logstatus then
+$def _stopLogInfo " Info" getLogPrefix swap strcat logstatus then
  
-$def _startLogTrivial debugLevel @ debugLevelTrivial >= if
-$def _stopLogTrivial "Spam" getLogPrefix swap strcat logstatus then
- 
-$def _startLogPacket debugLevel @ debugLevelAll >= if
-$def _stopLogPacket "Pack" getLogPrefix swap strcat logstatus then
-$def _stopLogPacketMultiple foreach nip "Pack" getLogPrefix swap strcat logstatus repeat then
+$def _startLogDebug debugLevel @ debugLevelAll >= if
+$def _stopLogDebug "Debug" getLogPrefix swap strcat logstatus then
+$def _stopLogDebugMultiple foreach nip "Debug" getLogPrefix swap strcat logstatus repeat then
 
 svar connectionsBySession (Main collection of sessions)
 svar sessionsByChannel ( {channel:[sessions]} )
@@ -141,15 +136,15 @@ svar bandwidthCounts
 svar debugLevel (Loaded from disk on initialization but otherwise in memory to stop constant proprefs)
 
 : getLogPrefix (s -- s) (Outputs the log prefix for the given type)
-    "[MWI-WS " swap 4 right strcat " " strcat pid serverProcess @ over = if pop "" else intostr then 8 right strcat "] " strcat
+    "[MWI-WS " swap 5 right strcat " " strcat pid serverProcess @ over = if pop "" else intostr then 8 right strcat "] " strcat
 ;
  
 : logError (s -- ) (Output definite problems)
-    "!ERR" getLogPrefix swap strcat logstatus
+    "ERROR" getLogPrefix swap strcat logstatus
 ;
  
 : logNotice (s -- ) (Output important notices)
-    "----" getLogPrefix swap strcat logstatus
+    "-----" getLogPrefix swap strcat logstatus
 ;
 
 : getSessions ( -- arr) (Return the session collection)
@@ -335,14 +330,14 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
 (Utility to continue a system message through and ensure it's logged)
 : sendSystemMessageToSessions[ arr:sessions str:message ?:data -- ]
     message @ data @ prepareSystemMessage
-    _startLogPacket
+    _startLogDebug
         { }list var! debugOutput
         sessions @ foreach nip
             "[>>] " message @ strcat " " strcat swap strcat ": " strcat over dup "," instr strcut nip strcat
             debugOutput @ array_appenditem debugOutput !
         repeat
         debugOutput @
-    _stopLogPacketMultiple
+    _stopLogDebugMultiple
     $ifdef trackBandwidth
         sessions @ array_count over strlen * 2 + "system_out" trackBandwidthCounts
     $endif
@@ -362,7 +357,7 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
     $ifdef trackBandwidth
         dup strlen 3 pick array_count * "channel_" channel @ strcat "_out" strcat trackBandwidthCounts
     $endif
-    _startLogPacket
+    _startLogDebug
         { }list var! debugOutput
         sessions @ foreach nip
             "[>>][" channel @ strcat "." strcat message @ strcat "] " strcat swap strcat ": " strcat
@@ -371,7 +366,7 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
             debugOutput @ array_appenditem debugOutput !
         repeat
         debugOutput @
-    _stopLogPacketMultiple
+    _stopLogDebugMultiple
     dispatchStringToSessions
 ;
 
@@ -435,9 +430,9 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
 
 (Separate so that it can be called by internal processes)
 : handleChannelCallbacks[ str:triggeringSession dbref:triggeringPlayer str:channel str:message any:data -- ]
-    _startLogPacket
+    _startLogDebug
         "Handling message from " triggeringSession @ strcat "/" strcat triggeringPlayer @ unparseobj strcat " on MUCK: " strcat channel @ strcat ":" strcat message @ strcat
-    _stopLogPacket
+    _stopLogDebug
     depth var! startDepth
     "on" message @ strcat var! functionToCall var programToCall
     prog "@channels/" channel @ strcat "/" strcat array_get_propvals foreach (ProgramAsInt CreationDate)
@@ -471,9 +466,9 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
                 depth startDepth @ - popn
             then
         else
-            _startLogTrivial
+            _startLogDebug
                 "Couldn't find or call " programToCall @ unparseobj strcat ":" strcat functionToCall @ strcat " to handle an incoming packet (maybe intentional)" strcat
-            _stopLogTrivial
+            _stopLogDebug
         then
     repeat
 ;
@@ -496,9 +491,9 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
         channel @ swap array_appenditem
         sessionDetails @ "channels" array_setitem dup sessionDetails !
         connectionsBySession @ session @ array_setitem connectionsBySession !
-        _startLogTrivial
+        _startLogDebug
             "Session " session @ strcat " joining channel " strcat channel @ strcat
-        _stopLogTrivial
+        _stopLogDebug
         (Cache - sessionsByChannel)
         sessionsByChannel @ channel @ array_getitem
         ?dup not if
@@ -570,9 +565,9 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
     0 var! announcePlayer
     0 var! announceAccount
     player @ #-1 dbcmp not if ( Player could have been deleted so can't use ok? here)
-        _startLogTrivial
+        _startLogDebug
             "Removing Player:Session " player @ unparseobj strcat ":" strcat session @ strcat " from channel " strcat channel @ strcat
-        _stopLogTrivial
+        _stopLogDebug
         (Cache - playersSessionsByChannel)
         playersSessionsByChannel @ channel @ array_getitem ?dup if (ListByPlayersSessions)
             dup player @ int array_getitem ?dup if (ChannelPlayerSessionList PlayerSessionList)
@@ -595,9 +590,9 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
             else pop then
         then
     then
-    _startLogTrivial
+    _startLogDebug
         "Removing Account:Session " account @ intostr strcat ":" strcat session @ strcat " from channel " strcat channel @ strcat
-    _stopLogTrivial
+    _stopLogDebug
     (Cache - accountsSessionsByChannel)
     accountsSessionsByChannel @ channel @ array_getitem ?dup if (ListByAccountsSessions)
         dup account @ array_getitem ?dup if (ChannelAccountSessionList AccountSessionList)
@@ -632,9 +627,9 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
 (Used retroactively - should NOT actually refer to sessionDetails as the reference may be out of date or gone.)
 (Player may be a non-valid object reference from it being deleted)
 : removePlayerAndAccountFromSession[ str:session dbref:player int:account array:channels -- ]
-    _startLogTrivial
+    _startLogDebug
         "Removing Player " player @ unparseobj strcat " from " strcat " session " strcat session @ strcat
-    _stopLogTrivial
+    _stopLogDebug
     channels @ foreach nip session @ player @ account @ 4 rotate removeSessionsPlayerAndAccountFromChannel repeat
     sessionsByPlayer @ player @ int array_getitem
     ?dup if
@@ -645,9 +640,9 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
             else
                 sessionsByPlayer @ player @ int array_delitem sessionsByPlayer !
                 (Last player session gone)
-                _startLogTrivial
+                _startLogDebug
                 "Doing _disconnect notification for " player @ unparseobj strcat
-                _stopLogTrivial
+                _stopLogDebug
                 var propQueueEntry
                 prog "_disconnect" array_get_propvals foreach swap propQueueEntry ! (S: prog)
                     dup string? if dup "$" instring if match else atoi then then dup dbref? not if dbref then
@@ -686,9 +681,9 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
 
 : deleteSession[ str:session -- ]
     connectionsBySession @ session @ array_getitem ?dup if
-        _startLogTrivial
+        _startLogDebug
             "Deleting session " session @ strcat
-        _stopLogTrivial
+        _stopLogDebug
         dup "channels" array_getitem var! channels
         dup "descr" array_getitem var! sessionDescr
         dup "player" array_getitem ?dup not if #-1 else then var! player
@@ -701,9 +696,9 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
         connectionsBySession @ session @ array_delitem connectionsBySession !
         (Cleanly disconnect descr, though this will trigger pidwatch for full clearing up.)
         sessionDescr @ descr? if
-            _startLogTrivial
+            _startLogDebug
                 "Disconnecting still connected descr " sessionDescr @ intostr strcat " associated with " strcat session @ strcat
-            _stopLogTrivial
+            _stopLogDebug
             { sessionDescr @ }list systime_precise intostr webSocketSendCloseFrameToDescrs
             sessionDescr @ descrboot
         then
@@ -722,10 +717,10 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
             oldplayer @ player @ dbcmp if exit then
             session @ oldPlayer @ oldAccount @ channels @ removePlayerAndAccountFromSession
         then
-        _startLogTrivial
+        _startLogDebug
             "Setting player of session " session @ strcat " to " strcat player @ unparseobj strcat
             oldplayer @ #-1 dbcmp not if " (Previously " strcat oldPlayer @ unparseobj strcat ")" strcat then
-        _stopLogTrivial
+        _stopLogDebug
         player @ connectionsBySession @ session @ array_getitem "player" array_setitem
         (Setting acount here since they're handled from the muck through the player reference)
         (Presently not unsetting an account though, since such shouldn't change)
@@ -740,9 +735,9 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
             sessionsByPlayer @ player @ int array_getitem
             ?dup not if
                 { }list (First session, treat as new connect)
-                _startLogTrivial
+                _startLogDebug
                 "Doing _connect notification for " player @ unparseobj strcat
-                _stopLogTrivial
+                _stopLogDebug
                 prog "_connect" array_get_propvals foreach swap var! propQueueEntry (S: prog)
                 dup string? if dup "$" instring if match else atoi then then dup dbref? not if dbref then
                 dup program? if
@@ -769,9 +764,9 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
  
 : handleIncomingSystemMessage[ str:session str:message str:dataAsJson ] (Session should already be confirmed to be valid.)
     session @ not message @ not OR if "handleIncomingSystemMessageFrom called with either session or message blank." logError exit then
-    _startLogPacket
+    _startLogDebug
         "[<<] " message @ strcat " " strcat session @ strcat ": " strcat dataAsJson @ strcat
-    _stopLogPacket
+    _stopLogDebug
     $ifdef trackBandwidth
         message @ strlen "system_in" trackBandwidthCounts
     $endif
@@ -798,9 +793,9 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
  
 : handleIncomingMessage[ str:session str:channel str:message str:dataAsJson ] (Session should already be confirmed to be valid.)
     session @ not channel @ not message @ not OR OR if "handleIncomingMessageFrom called with either session, channel or message blank." logError exit then
-    _startLogPacket
+    _startLogDebug
         "[<<][" channel @ strcat "." strcat message @ strcat "] " strcat session @ strcat ": " strcat dataAsJson @ strcat
-    _stopLogPacket
+    _stopLogDebug
     $ifdef trackBandwidth
         message @ strlen "channel_" channel @ strcat "_in" strcat trackBandwidthCounts
     $endif
@@ -836,14 +831,14 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
             else (Still in handshake - only thing we're expecting is 'auth <token>')
                 payload @ "auth " instring 1 = if
                     payload @ 5 strcut nip var! token
-                    _startLogTrivial
+                    _startLogDebug
                         "Received auth token '" token @ strcat "' for descr " strcat descr intostr strcat
-                    _stopLogTrivial                      
+                    _stopLogDebug                      
                     prog "@tokens/" token @ strcat propdir? if
                         systime_precise connectionDetails @ "acceptedAt" array_setitem connectionDetails !                    
-                        _startLogTrivial
+                        _startLogDebug
                             "Accepted auth token '" token @ strcat "' for descr " strcat descr intostr strcat
-                        _stopLogTrivial                      
+                        _stopLogDebug                      
                         
                         prog "@tokens/" token @ strcat "/account" strcat getprop
                         ?dup if connectionDetails @ "account" array_setitem connectionDetails ! then
@@ -853,18 +848,18 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
                         connectionDetails @ connectionsBySession @ session @ array_setitem connectionsBySession !
                         session @ swap handleSetPlayer
                         
-                        _startLogTrivial
+                        _startLogDebug
                             "Completed handshake for descr " descr intostr strcat " as: " strcat session @ sessionToString strcat
-                        _stopLogTrivial
+                        _stopLogDebug
 
                         (Notify connection)
                         { descr }list "session " session @ strcat
                         $ifdef trackBandwidth
                             dup strlen 2 + (For \r\n) "websocket_out" trackBandwidthCounts
                         $endif
-                        _startLogPacket
+                        _startLogDebug
                             "Informing descr " descr intostr strcat " of session: " strcat session @ strcat
-                        _stopLogPacket
+                        _stopLogDebug
                         webSocketSendTextFrameToDescrs
                     
                         (TODO: Re-enable token clearup)
@@ -873,9 +868,9 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
                         _startLogWarning
                             "Websocket for descr " descr intostr strcat " gave an auth token that wasn't valid: " strcat payload @ 5 strcut nip strcat
                         _stopLogWarning
-                        _startLogPacket
+                        _startLogDebug
                             "Informing descr " descr intostr strcat " of token rejection." strcat
-                        _stopLogPacket                        
+                        _stopLogDebug                        
                         { descr }list "invalidtoken" webSocketSendTextFrameToDescrs
                     then
                 else
@@ -907,9 +902,9 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
     $endif   
     opCode @ case
         136 = when
-            _startLogPacket
+            _startLogDebug
                 "Websocket Close request. Terminating pid."
-            _stopLogPacket
+            _stopLogDebug
             payload @ dup webSocketCreateCloseFrameHeader swap
             $ifdef trackBandwidth
                 over array_count over strlen + 2 + "websocket_out" trackBandwidthCounts
@@ -918,9 +913,9 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
             pid kill pop (Prevent further processing, pidwatch will react to the disconnect)
         end
         137 = when (Ping request, need to reply with pong)
-            _startLogPacket
+            _startLogDebug
                 "Websocket Ping request received."
-            _stopLogPacket
+            _stopLogDebug
             payload @ dup webSocketCreatePongFrameHeader swap
             $ifdef trackBandwidth
                 over array_count over strlen + 2 + "websocket_out" trackBandwidthCounts
@@ -929,9 +924,9 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
         end
         138 = when (Pong reply to a ping we sent - the packet should be the systime_precise we sent it at)
             payload @ strtof ?dup if
-                _startLogPacket
+                _startLogDebug
                     "Websocket Poing response received."
-                _stopLogPacket
+                _stopLogDebug
                 session @ swap handlePingResponse
             then
             { }list exit
@@ -948,9 +943,9 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
 ;
 
 : clientProcess[ clientSession -- ]
-    _startLogTrivial
+    _startLogDebug
         "Starting client process for " clientSession @ strcat " on descr " strcat descr intostr strcat
-    _stopLogTrivial
+    _stopLogDebug
     var event var eventArguments
     1 var! keepGoing
     { }list var! buffer
@@ -960,9 +955,9 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
         background event_wait (debug_line) event ! eventArguments !
         event @ case
             "HTTP.disconnect." instring when
-                _startLogPacket
+                _startLogDebug
                     "Client process received disconnect event."
-                _stopLogPacket
+                _stopLogDebug
                 0 keepGoing !
             end
             "HTTP.input_raw" stringcmp not when (Possible websocket data!)
@@ -984,9 +979,9 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
         then
         depth popn
     repeat
-    _startLogTrivial
+    _startLogDebug
         "Ending client process for " clientSession @ strcat " on descr " strcat descr intostr strcat
-    _stopLogTrivial
+    _stopLogDebug
 ;
 
 : handleClientConnecting
@@ -1011,9 +1006,9 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
 	then
 	
 	(At this point we're definitely trying to accept a websocket)
-	_startLogPacket
+	_startLogDebug
 		"New connection from descr " descr intostr strcat
-	_stopLogPacket
+	_stopLogDebug
 	
 	rawWebData @ { "data" "HeaderData" "Sec-WebSocket-Key" }list array_nested_get ?dup not if
 		_startLogWarning
@@ -1059,9 +1054,9 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
     
     session @ clientProcess
 
-	_startLogTrivial
+	_startLogDebug
 		"Client connection on " descr intostr strcat " ran for " strcat systime connectedAt @ - intostr strcat "s." strcat
-	_stopLogTrivial
+	_stopLogDebug
 ;	
  
 : serverDaemon
@@ -1084,15 +1079,15 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
                 connectionsBySession @ foreach
                     sessionDetails ! session !
                     sessionDetails @ "pid" array_getitem ispid? not if
-                        _startLogTrivial
+                        _startLogDebug
                             "Disconnecting " session @ sessionToString strcat " due to PID being dead." strcat
-                        _stopLogTrivial
+                        _stopLogDebug
                         session @ deleteSession continue
                     then
                     sessionDetails @ "descr" array_getitem descr? not if
-                        _startLogTrivial
+                        _startLogDebug
                             "Disconnecting " session @ sessionToString strcat " due to descr being disconnected." strcat
-                        _stopLogTrivial
+                        _stopLogDebug
                         session @ deleteSession continue
                     then
                     sessionDetails @ "acceptedAt" array_getitem not if continue then (Not finished handshake, so we don't ping)
@@ -1100,9 +1095,9 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
                     sessionDetails @ "lastPingOut" array_getitem sessionDetails @ "lastPingIn" array_getitem
                     over over > if (If lastPingOut is higher we're expecting a response. On initial connect or reconnect both are 0)
                         pop systime_precise swap - maxPing > if
-                            _startLogTrivial
+                            _startLogDebug
                                 "Disconnecting " session @ sessionToString strcat " due to no response to ping." strcat
-                            _stopLogTrivial
+                            _stopLogDebug
                             session @ deleteSession continue
                         then
                     else (Otherwise we're eligible to be pinged)
@@ -1118,14 +1113,14 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
                     then
                 repeat
                 (TBC - Need something to drop pending connections that have taken too long)
-                _startLogTrivial
+                _startLogDebug
                     "Heartbeat. Connections: " connectionsBySession @ array_count intostr strcat
                     ". Caches - ByChannel: " strcat sessionsByChannel @ array_count intostr strcat
                     ", ByPlayer: " strcat sessionsByPlayer @ array_count intostr strcat
                     ", SessionsByPlayerByChannel: " strcat playersSessionsByChannel @ array_count intostr strcat
                     ", SessionsByAccountByChannel: " strcat accountsSessionsByChannel @ array_count intostr strcat
                     ". Outgoing Pings: " strcat toPing @ array_count intostr strcat
-                _stopLogTrivial
+                _stopLogDebug
                 toPing @ ?dup if
                     systime_precise intostr 
                     $ifdef trackBandwidth
@@ -1138,18 +1133,18 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
                 eventArguments @ "data" array_getitem dup 1 array_getitem swap 0 array_getitem (Now S: descr PID)
                 dup watchPID
                 over clientPIDs @ 3 pick array_setitem clientPIDs !
-                _startLogTrivial
+                _startLogDebug
                     "Server process notified of PID " over intostr strcat " for descr " strcat 3 pick intostr strcat ", now monitoring " strcat clientPIDs @ array_count intostr strcat " PID(s)." strcat
-                _stopLogTrivial
+                _stopLogDebug
                 pop pop
             end
             "PROC.EXIT." instring when
                 eventName @ 10 strcut nip atoi
                 clientPIDs @ over array_getitem ?dup if (S: PID descr)
                 clientPIDs @ 3 pick array_delitem clientPIDs !
-                _startLogTrivial
+                _startLogDebug
                     "Server process notified of disconnect on PID " 3 pick intostr strcat ", now monitoring " strcat clientPIDs @ array_count intostr strcat " PID(s)." strcat
-                _stopLogTrivial
+                _stopLogDebug
                 nip (S: descr) (Find sessions still associated with this descr )
                 connectionsBySession @ foreach (Descr Session Details)
                     "descr" array_getitem 3 pick = if
@@ -1206,14 +1201,13 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
     dup "#debug" instring 1 = if
 		6 strcut nip strip
 		dup "" stringcmp not if
-			"Valid values are: off, warning, info, trivial, all" .tell
+			"Valid values are: off, warning, info, all" .tell
 			exit
 		then
 		0 "" (Level String)
 		3 pick "off"      stringcmp not if pop pop 0                 "Off (Core notices and errors only)" then
 		3 pick "warning"  stringcmp not if pop pop debugLevelWarning "Warning" then
 		3 pick "info"     stringcmp not if pop pop debugLevelInfo    "Info" then
-		3 pick "trivial"  stringcmp not if pop pop debugLevelTrivial "Trivial (Spammy)" then
 		3 pick "all"      stringcmp not if pop pop debugLevelAll     "All (Super Spammy)" then
 		rot pop dup if
 			"Debug level set to: " swap strcat dup logNotice .tell
