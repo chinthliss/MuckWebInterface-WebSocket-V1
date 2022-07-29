@@ -26,7 +26,7 @@ Assumes the muck takes time to re-use descrs, in particular that their is suffic
 
 Message are sent over channels, programs register to 'watch' a channel.
 On each message the program looks for functions on registered programs in the form 'on<messsage>' and passes them the message.
-These functions are called with the arguments 'channel, message, session, player, data'; Player may be #-1.
+These functions are called with the arguments 'channel, message, descr, player, data'; Player may be #-1.
 
 Communication is sent in the form of a three letter code prefixing the line. Message formats used:
 MSGChannel,Message,Data       Standard message sent over a channel. Data is JSON encoded
@@ -36,19 +36,18 @@ Ping / Pong                   Handled at the transport level
 Underlying transmission code attempts to minimize the amount encoding by not doing it for every recipient
 Approximate transmission route:
 [Public send request functions through various SendToX methods]
-[Requests broken down into a list of sessions and the message, ending in sendMessageToSessions]
+[Requests broken down into a list of descrs and the message, ending in sendMessageToDescrs]
 [Message is encoded appropriately once and sent to each websocket]
 
-The session object stored in connectionsBySession:
-    session: A copy of our session ID
-    descr: Descr using session presently
+The connection details stored in connections:
+    descr: Descr for connection. The dictionary is also indexed by this.
     pid: PID of client process
     player: Associated player dbref
     account: Associated account - stored so we're not reliant on player for the reference
     channels: String list of channels joined
     connectedAt: Time of connection
     acceptedAt: Time connection handshake completed
-    properties: keyValue list if properties set on a session
+    properties: keyValue list if properties set on a connection
     ping: Last performance between ping sent and ping received
     lastPingOut: Systime_precise a pending ping was issued.
     lastPingIn: Systime_precise a pending ping was received
@@ -73,7 +72,7 @@ $include $lib/websocketIO
 $pubdef : (Clear present _defs)
 
 $libdef websocketIssueAuthenticationToken
-$libdef getSessions
+$libdef getConnections
 $libdef getCaches
 $libdef getDescrs
 $libdef getBandwidthCounts
@@ -81,11 +80,11 @@ $libdef connectionsFromPlayer
 $libdef playerUsingChannel?
 $libdef playersOnChannel
 $libdef playersOnWeb
-$libdef setSessionProperty
-$libdef getSessionProperty
-$libdef delSessionProperty
-$libdef sendToSessions
-$libdef sendToSession
+$libdef setConnectionProperty
+$libdef getConnectionProperty
+$libdef delConnectionProperty
+$libdef sendToDescrs
+$libdef sendToDescr
 $libdef sendToChannel
 $libdef sendToPlayer
 $libdef sendToPlayers
@@ -106,8 +105,8 @@ $endif
    Error   - Always output
    Notice  - Always output, core things
    Warning - Things that could be an error but might not be
-   Info    - Information above the individual session level, e.g. player or channel
-   Debug   - Inner process information on an individual session level, often spammy
+   Info    - Information above the individual connection level, e.g. player or channel
+   Debug   - Inner process information on an individual connection level, often spammy
 )
 $def debugLevelWarning 1
 $def debugLevelInfo 2
@@ -126,11 +125,10 @@ $def _startLogDebug debugLevel @ debugLevelAll >= if
 $def _stopLogDebug "Debug" getLogPrefix swap strcat logstatus then
 $def _stopLogDebugMultiple foreach nip "Debug" getLogPrefix swap strcat logstatus repeat then
 
-svar connectionsBySession (Main collection of sessions)
-svar sessionsByChannel ( {channel:[sessions]} )
-svar sessionsByPlayer ( {playerAsInt:[sessions]} )
-svar playersSessionsByChannel ( {channel:{player:[sessions]}} )
-svar accountsSessionsByChannel ( {channel:{account:[sessions]}} )
+svar connections (Main collection of connections, indexed by descr)
+svar cacheByChannel ( {channel:[descr..]} )
+svar cacheByPlayer ( {playerAsInt:[descr..]} )
+svar cacheByAccount ( {accountAsInt:[descr..]} )
 svar serverProcess (PID of the server daemon)
 svar bandwidthCounts
 svar debugLevel (Loaded from disk on initialization but otherwise in memory to stop constant proprefs)
@@ -147,24 +145,19 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
     "-----" getLogPrefix swap strcat logstatus
 ;
 
-: getSessions ( -- arr) (Return the session collection)
-    connectionsBySession @
-; archcall getSessions
+: getConnections ( -- arr) (Return the connection collection)
+    connections @
+; archcall getConnections
  
-: getCaches ( -- arr arr arr arr) (Return the caches)
-    sessionsByChannel @
-    sessionsByPlayer @
-    playersSessionsByChannel @
-    accountsSessionsByChannel @
+: getCaches ( -- arr arr arr ) (Return the caches)
+    cacheByChannel @ 
+    cacheByPlayer @
+    cacheByAccount @
 ; archcall getCaches 
  
 : getDescrs ( -- arr) (Returns descrs the program is using, so other programs know they're reserved)
     { }list
-    connectionsBySession @ foreach nip
-        "descr" array_getitem ?dup if
-            swap array_appenditem
-        then
-    repeat
+    connections @ foreach pop swap array_appenditem repeat
 ; PUBLIC getDescrs 
  
 : getBandwidthCounts ( -- arr)
@@ -184,30 +177,28 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
     bandwidthCounts @ bucket @ array_setitem bandwidthCounts !
 ;
  
-  (Produces a string with the items in sessionDetails for logging and debugging)
-: sessionDetailsToString[ arr:details -- str:result ]
-    details @ not if "[Invalid/Disconnected session]" exit then
-    "Session " details @ "session" array_getitem dup not if pop "[NOSESSIONID]" then strcat "[" strcat
-        "Descr:" details @ "descr" array_getitem intostr strcat strcat
+  (Produces a string with the items in ConnectionDetails for logging and debugging)
+: connectionDetailsToString[ arr:details -- str:result ]
+    details @ not if "[Invalid/Disconnected Connection]" exit then
+        "[Descr " details @ "descr" array_getitem intostr strcat
         ", PID:" details @ "pid" array_getitem intostr strcat strcat
         ", Account:" details @ "account" array_getitem ?dup not if "-UNSET-" else intostr then strcat strcat        
         ", Player:" details @ "player" array_getitem ?dup not if "-UNSET-" else dup ok? if name else pop "-INVALID-" then then strcat strcat
     "]" strcat
 ;
  
-  (Utility function - ideally call sessionDetails if already in possession of them)
-: sessionToString[ str:session -- str:result ]
-    connectionsBySession @ session @ array_getitem sessionDetailsToString
+  (Utility function - ideally call connectiondetailsToString directly if already in possession of them)
+: DescrToString[ str:who -- str:result ]
+    connections @ who @ array_getitem connectionDetailsToString
 ;
 
 : ensureInit
     (Ensures variables are configured and server daemon is running)
-    connectionsBySession @ dictionary? not if
-        { }dict connectionsBySession !
-        { }dict sessionsByChannel !
-        { }dict sessionsByPlayer !
-        { }dict playersSessionsByChannel !
-        { }dict accountsSessionsByChannel !
+    connections @ dictionary? not if
+        { }dict connections !
+        { }dict cacheByChannel !
+        { }dict cacheByPlayer !
+        { }dict cacheByAccount !
         { }dict bandwidthCounts !
         "Initialised data structures." logNotice
         prog "debugLevel" getpropval debugLevel !
@@ -219,14 +210,6 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
     serverProcess @ not if
         0 prog "ServerStartup" queue serverProcess ! (Need to set immediately to prevent loops)
     then
-;
-
-  (Returns a value for the next session)
-: createNewSessionID ( -- s)
-   systime_precise intostr "-" "." subst "-" strcat random 1000 % intostr base64encode strcat
-   ("select uuid()" mysql_value) ($lib/mysql - raw query)
-   (mysql_uuid) ($lib/mysql)
-   (get_uuid) ($lib/uuid)
 ;
 
 : websocketIssueAuthenticationToken[ aid:account dbref?:character -- str:token ]
@@ -241,82 +224,59 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
 
   (Quicker way to check to see if a player is using the connection framework)
 : connectionsFromPlayer[ dbref:player -- int:connections ]
-  player @ player? not if "Invalid Arguments" abort then
-  sessionsByPlayer @ player @ int array_getitem ?dup if array_count else 0 then
+    player @ player? not if "Invalid Arguments" abort then
+    cacheByPlayer @ player @ int array_getitem ?dup if array_count else 0 then
 ; PUBLIC connectionsFromPlayer 
  
-  (Quicker function to verify if a player has a session on the given channel)
+  (Quicker function to verify if a player is on the given channel)
 : playerUsingChannel?[ dbref:player str:channel -- int:bool ]
-   playersSessionsByChannel @ channel @ array_getitem ?dup if
-      player @ int array_getitem if 1 else 0 then
-   else 0 then
+    cacheByPlayer @ player @ int array_getitem ?dup not if 0 exit then
+    cacheByChannel @ channel @ array_getitem ?dup not if pop 0 exit then
+    array_intersect array_count
 ; PUBLIC playerUsingChannel? 
  
   (Returns a list of players on the given channel.)
 : playersOnChannel[ str:channel -- list:players ]
    { }list
-   playersSessionsByChannel @ channel @ array_getitem ?dup if
-      foreach pop dbref
-         dup ok? if swap array_appenditem else pop then (In case a player has been deleted but a session hasn't timed out)
+   cacheByChannel @ channel @ array_getitem ?dup if
+      foreach pop connections @ array_getitem
+        "player" array_getitem dup player? if swap array_appenditem else pop then
       repeat
+      1 array_union
    then
 ; PUBLIC playersOnChannel 
  
   (Returns a list of everyone connected)
 : playersOnWeb[ -- list:players ]
-  { }list
-  sessionsByPlayer @ foreach pop dbref
-    dup ok? if swap array_appenditem else pop then (In case a player has been deleted but a session hasn't timed out)
-  repeat
+    { }list
+    cacheByPlayer @ foreach pop
+        dbref dup player? if swap array_appenditem else pop then
+    repeat
 ; PUBLIC playersOnWeb 
 
-: setSessionProperty[ str:session str:property any:data -- ]
-  session @ string? property @ string? AND not if "setSessionProperty: Invalid arguments" abort then
-  connectionsBySession @ session @ array_getitem ?dup not if exit then
-  (S: sessionDetails)
-  dup "properties" array_getitem data @ swap property @ array_setitem
-  swap "properties" array_setitem connectionsBySession @ session @ array_setitem connectionsBySession !
-; PUBLIC setSessionProperty 
+: setConnectionProperty[ int:who str:property any:data -- ]
+    who @ int? property @ string? AND not if "setConnectionProperty: Invalid arguments" abort then
+    connections @ who @ array_getitem ?dup not if exit then
+    dup "properties" array_getitem data @ swap property @ array_setitem
+    swap "properties" array_setitem connections @ who @ array_setitem connections !
+; PUBLIC setConnectionProperty 
  
-: getSessionProperty[ str:session str:property -- any:data ]
-  session @ string? property @ string? AND not if "getSessionProperty: Invalid arguments" abort then
-  connectionsBySession @ session @ array_getitem ?dup not if 0 exit then
-  (S: sessionDetails)
-  "properties" array_getitem property @ array_getitem
-; PUBLIC getSessionProperty 
+: getConnectionProperty[ int:who str:property -- any:data ]
+    who @ int? property @ string? AND not if "getConnectionProperty: Invalid arguments" abort then
+    connections @ who @ array_getitem ?dup not if 0 exit then
+    "properties" array_getitem property @ array_getitem
+; PUBLIC getConnectionProperty 
  
-: delSessionProperty[ str:session str:property -- ]
-  session @ string? property @ string? AND not if "delSessionProperty: Invalid arguments" abort then
-  connectionsBySession @ session @ array_getitem ?dup not if exit then
-  (S: sessionDetails)
-  dup "properties" array_getitem property @ array_delitem
-  swap "properties" array_setitem connectionsBySession @ session @ array_setitem connectionsBySession !
-; PUBLIC delSessionProperty 
+: delConnectionProperty[ int:who str:property -- ]
+    who @ int? property @ string? AND not if "delConnectionProperty: Invalid arguments" abort then
+    connections @ who @ array_getitem ?dup not if exit then
+    dup "properties" array_getitem property @ array_delitem
+    swap "properties" array_setitem connections @ who @ array_setitem connections !
+; PUBLIC delConnectionProperty 
 
-: dispatchStringToSessions[ arr:sessions str:string -- ]
+: dispatchStringToDescrs[ arr:descrs str:string -- ]
     string @ ensureValidUTF8 string !
     { }list var! descrs
-    var session
-    (Check sessions and convert them to descrs)
-    sessions @ dup array? not if pop exit then
-    foreach nip session !
-        connectionsBySession @ session @ array_getitem ?dup if
-            dup "descr" array_getitem
-            (S: sessionDetails Descr)
-            dup descr? not if
-                _startLogWarning
-                    "Attempt to send string to invalid descr (possibly due to timely disconnect) on: " session @ sessionToString strcat
-                _stopLogWarning
-                (session @ deleteSession) (Don't delete here due to word not being available.)
-                pop pop continue
-            then
-            descrs @ array_appenditem descrs !
-        else
-            _startLogWarning
-                "Attempt to send string to a session that doesn't exist (possibly due to timely disconnect): " session @ strcat
-            _stopLogWarning
-        then
-    repeat
     $ifdef trackbandwidth
         descrs @ array_count string @ strlen array_count 2 + * "websocket_out" trackBandwidthCounts
     $endif
@@ -327,39 +287,37 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
     "SYS" message @ strcat "," strcat data @ encodeJson strcat
 ;
 
+: prepareChannelMessage[ str:channel str:message ?:data -- str:encoded ]
+    "MSG" channel @ strcat "," strcat message @ strcat "," strcat data @ encodeJson strcat
+;
+
 (Utility to continue a system message through and ensure it's logged)
-: sendSystemMessageToSessions[ arr:sessions str:message ?:data -- ]
+: sendSystemMessageToDescrs[ arr:descrs str:message ?:data -- ]
     message @ data @ prepareSystemMessage
+    $ifdef trackBandwidth
+        descrs @ array_count over strlen * 2 + "system_out" trackBandwidthCounts
+    $endif
     _startLogDebug
         { }list var! debugOutput
-        sessions @ foreach nip
+        descrs @ foreach nip
             "[>>] " message @ strcat " " strcat swap strcat ": " strcat over dup "," instr strcut nip strcat
             debugOutput @ array_appenditem debugOutput !
         repeat
         debugOutput @
     _stopLogDebugMultiple
-    $ifdef trackBandwidth
-        sessions @ array_count over strlen * 2 + "system_out" trackBandwidthCounts
-    $endif
-    sessions @ swap dispatchStringToSessions
-;
-
-: prepareMessage[ str:channel str:message ?:data -- str:encoded ]
-    "MSG" channel @ strcat "," strcat message @ strcat "," strcat data @ encodeJson strcat
+    descrs @ swap dispatchStringToDescrs
 ;
 
 (This is the root function for sending - all sendTo functions break down their requirements to call this one)
 (It assumes argument checking has been performed already)
-: sendMessageToSessions[ arr:sessions str:channel str:message any:data -- ]
-    sessions @ sessionsByChannel @ channel @ array_getitem ?dup if array_intersect else pop exit then (filter)
-    ?dup not if exit then
+: sendChannelMessageToDescrs[ arr:descrs str:channel str:message any:data -- ]
     channel @ message @ data @ prepareMessage
     $ifdef trackBandwidth
-        dup strlen 3 pick array_count * "channel_" channel @ strcat "_out" strcat trackBandwidthCounts
+        message @ strlen descrs @ array_count * "channel_" channel @ strcat "_out" strcat trackBandwidthCounts
     $endif
     _startLogDebug
         { }list var! debugOutput
-        sessions @ foreach nip
+        descrs @ foreach nip
             "[>>][" channel @ strcat "." strcat message @ strcat "] " strcat swap strcat ": " strcat
             (Trim down to data part of outgoing string rather than processing it again)
             over dup "," instr strcut nip dup "," instr strcut nip strcat
@@ -367,29 +325,29 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
         repeat
         debugOutput @
     _stopLogDebugMultiple
-    dispatchStringToSessions
+    descrs @ swap dispatchStringToDescrs
 ;
 
-: sendToSessions[ arr:sessions str:channel str:message any:data -- ]
-    sessions @ array? channel @ string? message @ string? AND AND not if "Invalid arguments" abort then
+: sendToDescrs[ arr:descrs str:channel str:message any:data -- ]
+    descrs @ array? channel @ string? message @ string? AND AND not if "Invalid arguments" abort then
     message @ "" stringcmp not if "Message can't be blank" abort then
     channel @ "" stringcmp not if "Channel can't be blank" abort then
-    sessions @ channel @ message @ data @ sendMessageToSessions
-; PUBLIC sendToSessions 
+    descrs @ channel @ message @ data @ sendChannelMessageToDescrs
+; PUBLIC sendToDescrs 
 
-: sendToSession[ str:session str:channel str:message any:data -- ]
-    session @ string? channel @ string? message @ string? AND AND not if "Invalid arguments" abort then
-    session @ "" stringcmp not if "Session can't be blank" abort then
+: sendToDescr[ str:who str:channel str:message any:data -- ]
+    who @ int? channel @ string? message @ string? AND AND not if "Invalid arguments" abort then
+    who @ "" stringcmp not if "Who can't be blank" abort then
     message @ "" stringcmp not if "Message can't be blank" abort then
     channel @ "" stringcmp not if "Channel can't be blank" abort then
-    { session @ }list channel @ message @ data @ sendMessageToSessions
-; PUBLIC sendToSession 
+    { who @ }list channel @ message @ data @ sendChannelMessageToDescrs
+; PUBLIC sendToDescr 
 
 : sendToChannel[ str:channel str:message any:data -- ]
     channel @ string? message @ string? AND not if "Invalid arguments" abort then
     message @ "" stringcmp not if "Message can't be blank" abort then
     channel @ "" stringcmp not if "Channel can't be blank" abort then
-    sessionsByChannel @ channel @ array_getitem ?dup if channel @ message @ data @ sendMessageToSessions then
+    cacheByChannel @ channel @ array_getitem ?dup if channel @ message @ data @ sendChannelMessageToDescrs then
 ; PUBLIC sendToChannel 
 
 : sendToPlayer[ dbref:player str:channel str:message any:data -- ]
@@ -397,9 +355,11 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
     player @ ok? not if "Player must be valid" abort then
     message @ "" stringcmp not if "Message can't be blank" abort then
     channel @ "" stringcmp not if "Channel can't be blank" abort then
-    playersSessionsByChannel @ { channel @ player @ int }list array_nested_get
+    cacheByPlayer @ player @ int array_getitem ?dup not if 0 exit then
+    cacheByChannel @ channel @ array_getitem ?dup not if pop 0 exit then
+    array_intersect
     ?dup if
-        channel @ message @ data @ sendMessageToSessions
+        channel @ message @ data @ sendChannelMessageToDescrs
     then
 ; PUBLIC sendToPlayer 
 
@@ -409,12 +369,14 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
     channel @ "" stringcmp not if "Channel can't be blank" abort then
     { }list (Combined list) var player
     players @ foreach nip player !
-        playersSessionsByChannel @ { channel @ player @ int }list array_nested_get
+        cacheByPlayer @ player @ int array_getitem ?dup not if 0 exit then
+        cacheByChannel @ channel @ array_getitem ?dup not if pop 0 exit then
+        array_intersect
         ?dup if
             array_union
         then
     repeat
-    channel @ message @ data @ sendMessageToSessions
+    channel @ message @ data @ sendChannelMessageToDescrs
 ; PUBLIC sendToPlayers 
 
 : sendToAccount[ aid:account str:channel str:message any:data -- ]
@@ -422,16 +384,18 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
     account @ not if "Account can't be blank" abort then
     message @ "" stringcmp not if "Message can't be blank" abort then
     channel @ "" stringcmp not if "Channel can't be blank" abort then
-    accountsSessionsByChannel @ { channel @ account @ }list array_nested_get
+    cacheByAccount @ account @ int array_getitem ?dup not if 0 exit then
+    cacheByChannel @ channel @ array_getitem ?dup not if pop 0 exit then
+    array_intersect
     ?dup if
-        channel @ message @ data @ sendMessageToSessions
+        channel @ message @ data @ sendChannelMessageToDescrs
     then
 ; PUBLIC sendToAccount 
 
 (Separate so that it can be called by internal processes)
-: handleChannelCallbacks[ str:triggeringSession dbref:triggeringPlayer str:channel str:message any:data -- ]
+: handleChannelCallbacks[ int:triggeringDescr dbref:triggeringPlayer str:channel str:message any:data -- ]
     _startLogDebug
-        "Handling message from " triggeringSession @ strcat "/" strcat triggeringPlayer @ unparseobj strcat " on MUCK: " strcat channel @ strcat ":" strcat message @ strcat
+        "Handling message from " triggeringDescr @ int strcat "/" strcat triggeringPlayer @ unparseobj strcat " on MUCK: " strcat channel @ strcat ":" strcat message @ strcat
     _stopLogDebug
     depth var! startDepth
     "on" message @ strcat var! functionToCall var programToCall
@@ -441,7 +405,7 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
         swap over timestamps 3 popn = not if pop pop continue then
         programToCall !
         programToCall @ functionToCall @ cancall? if
-            channel @ message @ triggeringSession @ triggeringPlayer @ data @ programToCall @ functionToCall @
+            channel @ message @ triggeringDescr @ triggeringPlayer @ data @ programToCall @ functionToCall @
             7 try call catch_detailed
                 var! error
                 _startLogWarning
@@ -473,87 +437,78 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
     repeat
 ;
 
-( Note - also called when a connection changes player)
-: handleJoinChannel[ str: session str:channel -- ]
-    0 var! announceSession 0 var! announcePlayer 0 var! announceAccount
-    connectionsBySession @ session @ array_getitem
+: sendChannelConnectionAnnouncements[ str:channel int:who dbref:player int:account sendDescrNotifications sendPlayerNotifications sendAccountNotifications -- ]
+    (Do announcements to client first, since callbacks may cause messages to send out of order)
+    announceDescr @ if
+        who @ channel @ "descrConnected" systime sendToSession
+    then
+    announcePlayer @ if
+        who @ channel @ "playerConnected" systime sendToSession
+    then
+    announceAccount @ if
+        who @ channel @ "accountConnected" systime sendToSession
+    then
+    (And then process callbacks)
+    announceSession @ if
+        who @ player @ channel @ "descrEnteredChannel" who @ handleChannelCallbacks
+    then
+    announcePlayer @ if
+        who @ player @ channel @ "playerEnteredChannel" player @ handleChannelCallbacks
+    then
+    announceAccount @ if
+        who @ player @ channel @ "accountEnteredChannel" account @ handleChannelCallbacks
+    then
+;
+
+: addConnectionToChannel[ int:who str:channel -- ]
+    0 var! announceDescr 0 var! announcePlayer 0 var! announceAccount
+    connections @ who @ array_getitem
     ?dup not if
         _startLogWarning
-            "Attempt at unknown session " session @ strcat " trying to join channel: " strcat channel @ strcat "(Possibly okay if disconnected whilst joining)" strcat
+            "Attempt at unknown descr " who @ strcat " trying to join channel: " strcat channel @ strcat "(Possibly okay if disconnected whilst joining)" strcat
         _stopLogWarning
         exit
     then
-    dup var! sessionDetails
+    dup var! connectionDetails
     dup "player" array_getitem ?dup not if #-1 then var! player
     "account" array_getitem var! account
-    sessionDetails @ "channels" array_getitem
+    connectionDetails @ "channels" array_getitem
     dup channel @ array_findval not if
         channel @ swap array_appenditem
-        sessionDetails @ "channels" array_setitem dup sessionDetails !
-        connectionsBySession @ session @ array_setitem connectionsBySession !
+        connectionDetails @ "channels" array_setitem dup connectionDetails !
+        connections @ who @ array_setitem connections !
         _startLogDebug
-            "Session " session @ strcat " joining channel " strcat channel @ strcat
+            "Descr " who @ strcat " joining channel " strcat channel @ strcat
         _stopLogDebug
-        (Cache - sessionsByChannel)
-        sessionsByChannel @ channel @ array_getitem
+        (Cache - byChannel)
+        cacheByChannel @ channel @ array_getitem
         ?dup not if
             _startLogInfo
                 "Channel now active: " channel @ strcat
             _stopLogInfo
             { }list
         then
-        dup session @ array_findval not if
-            session @ swap array_appenditem
-            sessionsByChannel @ channel @ array_setitem sessionsByChannel !
-            1 announceSession !
+        (Look for previous instances of the same player/account on this channel)
+        player @ ok? if
+        then
+        account @ if
+        then
+        dup who @ array_findval not if
+            who @ swap array_appenditem
+            cacheByChannel @ channel @ array_setitem cacheByChannel !
         else
             pop
-            "Session " session @ strcat " joined channel '" strcat channel @ strcat "' but was already in sessionsByChannel list." strcat logerror
+            "Descr " who @ strcat " joined channel '" strcat channel @ strcat "' but was already in channel cache." strcat logerror
         then
     else pop then
-    player @ ok? if (Handled separately as we're also called when player changes, though the caller should have removed old player references.)
-        (Cache - playersSessionsByChannel)
-        playersSessionsByChannel @ channel @ array_getitem ?dup not if { }dict then (ListForChannel)
-        dup player @ int array_getitem ?dup not if { }list 1 announcePlayer ! then (ListForChannel ListForPlayer)
-        dup session @ array_findval not if
-            session @ swap array_appenditem
-            swap player @ int array_setitem
-            playersSessionsByChannel @ channel @ array_setitem playersSessionsByChannel !
-        else pop pop then
-    then
-    (Cache - accountsSessionsByChannel)
-    accountsSessionsByChannel @ channel @ array_getitem ?dup not if { }dict then (ListForChannel)
-    dup account @ array_getitem ?dup not if { }list 1 announceAccount ! then (ListForChannel ListForPlayer)
-    dup session @ array_findval not if
-        session @ swap array_appenditem
-        swap account @ array_setitem
-        accountsSessionsByChannel @ channel @ array_setitem accountsSessionsByChannel !
-    else pop pop then
-
-    (Do external announcements first, since internal ones may cause callbacks to send messages out of order)
-    announceSession @ if
-        session @ channel @ "sessionConnected" systime sendToSession
-    then
-    announcePlayer @ if
-        session @ channel @ "playerConnected" systime sendToSession
-    then
-    announceAccount @ if
-        session @ channel @ "accountConnected" systime sendToSession
-    then
-    (Internal announcements)
-    announceSession @ if
-        session @ player @ channel @ "sessionEnteredChannel" session @ handleChannelCallbacks
-    then
-    announcePlayer @ if
-        session @ player @ channel @ "playerEnteredChannel" player @ handleChannelCallbacks
-    then
-    announceAccount @ if
-        session @ player @ channel @ "accountEnteredChannel" account @ handleChannelCallbacks
-    then
+    (Send announcements as required)
+    channel @ who @ player @ account @
+    announceDescr @ announcePlayer @ announceAccount @ sendChannelConnectionAnnouncements
+    
 ;
 
-(Utility function to call handleJoinChannel multiple times)
-: handleJoinChannels[ str:session arr:channels -- ]
+(Utility function to call addToChannel multiple times)
+: addConnectionToChannels[ str:session arr:channels -- ]
     channels @ foreach nip session @ swap handleJoinChannel repeat
 ;
 
@@ -623,10 +578,9 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
     then
 ;
 
-(Handles the non-channel specific removal parts of a player)
 (Used retroactively - should NOT actually refer to sessionDetails as the reference may be out of date or gone.)
 (Player may be a non-valid object reference from it being deleted)
-: removePlayerAndAccountFromSession[ str:session dbref:player int:account array:channels -- ]
+: unsetPlayerAndAccountonConnection[ str:session dbref:player int:account array:channels -- ]
     _startLogDebug
         "Removing Player " player @ unparseobj strcat " from " strcat " session " strcat session @ strcat
     _stopLogDebug
@@ -780,10 +734,7 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
     else "" then var! data
     message @ case
         "joinChannels" stringcmp not when
-            session @ data @ dup string? if handleJoinChannel else handleJoinChannels then
-        end
-        "pong" stringcmp not when (This is actually http only, websockets are handled at a lower level)
-            session @ data @ handlePingResponse
+            session @ data @ dup string? if addConnectionToChannel else addConnectionToChannels then
         end
         default
             "ERROR: Unknown system message: " message @ strcat logError
