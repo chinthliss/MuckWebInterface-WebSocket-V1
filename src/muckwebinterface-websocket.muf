@@ -78,6 +78,7 @@ $libdef getDescrs
 $libdef getBandwidthCounts
 $libdef connectionsFromPlayer
 $libdef playerUsingChannel?
+$libdef accountUsingChannel?
 $libdef playersOnChannel
 $libdef playersOnWeb
 $libdef setConnectionProperty
@@ -234,6 +235,13 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
     cacheByChannel @ channel @ array_getitem ?dup not if pop 0 exit then
     array_intersect array_count
 ; PUBLIC playerUsingChannel? 
+
+  (Quicker function to verify if a player is on the given channel)
+: accountUsingChannel?[ dbref:player int:account -- int:bool ]
+    cacheByAccount @ account @ int array_getitem ?dup not if 0 exit then
+    cacheByChannel @ channel @ array_getitem ?dup not if pop 0 exit then
+    array_intersect array_count
+; PUBLIC accountUsingChannel? 
  
   (Returns a list of players on the given channel.)
 : playersOnChannel[ str:channel -- list:players ]
@@ -439,23 +447,23 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
 
 : sendChannelConnectionAnnouncements[ str:channel int:who dbref:player int:account sendDescrNotifications sendPlayerNotifications sendAccountNotifications -- ]
     (Do announcements to client first, since callbacks may cause messages to send out of order)
-    announceDescr @ if
-        who @ channel @ "descrConnected" systime sendToSession
+    sendDescrNotifications @ if
+        who @ channel @ "descrConnected" systime sendToDescr
     then
-    announcePlayer @ if
-        who @ channel @ "playerConnected" systime sendToSession
+    sendPlayerNotifications @ if
+        who @ channel @ "playerConnected" systime sendToDescr
     then
-    announceAccount @ if
-        who @ channel @ "accountConnected" systime sendToSession
+    sendAccountNotifications @ if
+        who @ channel @ "accountConnected" systime sendToDescr
     then
     (And then process callbacks)
-    announceSession @ if
+    sendDescrNotifications @ if
         who @ player @ channel @ "descrEnteredChannel" who @ handleChannelCallbacks
     then
-    announcePlayer @ if
+    sendPlayerNotifications @ if
         who @ player @ channel @ "playerEnteredChannel" player @ handleChannelCallbacks
     then
-    announceAccount @ if
+    sendAccountNotifications @ if
         who @ player @ channel @ "accountEnteredChannel" account @ handleChannelCallbacks
     then
 ;
@@ -488,11 +496,14 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
             _stopLogInfo
             { }list
         then
-        (Look for previous instances of the same player/account on this channel)
+        (Check if we need to do announcements about player / account joining channel if they weren't on it previously)
         player @ ok? if
+            player @ channel @ playerUsingChannel? not announcePlayer !
         then
         account @ if
+            account @ channel @ accountUsingChannel? not announceAccount !
         then
+        (Cache - ByChannel)
         dup who @ array_findval not if
             who @ swap array_appenditem
             cacheByChannel @ channel @ array_setitem cacheByChannel !
