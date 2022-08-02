@@ -188,8 +188,8 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
     "]" strcat
 ;
  
-  (Utility function - ideally call connectiondetailsToString directly if already in possession of them)
-: DescrToString[ str:who -- str:result ]
+  (Utility function - ideally call connectionDetailsToString instead.)
+: descrToString[ str:who -- str:result ]
     connections @ who @ array_getitem connectionDetailsToString
 ;
 
@@ -223,20 +223,20 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
     token @
 ; wizcall websocketIssueAuthenticationToken
 
-  (Quicker way to check to see if a player is using the connection framework)
+  (Check to see if a player is using the connection framework)
 : connectionsFromPlayer[ dbref:player -- int:connections ]
     player @ player? not if "Invalid Arguments" abort then
     cacheByPlayer @ player @ int array_getitem ?dup if array_count else 0 then
 ; PUBLIC connectionsFromPlayer 
  
-  (Quicker function to verify if a player is on the given channel)
+  (Check to see if a player is on the given channel)
 : playerUsingChannel?[ dbref:player str:channel -- int:bool ]
     cacheByPlayer @ player @ int array_getitem ?dup not if 0 exit then
     cacheByChannel @ channel @ array_getitem ?dup not if pop 0 exit then
     array_intersect array_count
 ; PUBLIC playerUsingChannel? 
 
-  (Quicker function to verify if a player is on the given channel)
+  (Check to see if an account is on the given channel)
 : accountUsingChannel?[ dbref:player int:account -- int:bool ]
     cacheByAccount @ account @ int array_getitem ?dup not if 0 exit then
     cacheByChannel @ channel @ array_getitem ?dup not if pop 0 exit then
@@ -445,38 +445,17 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
     repeat
 ;
 
-: sendChannelConnectionAnnouncements[ str:channel int:who dbref:player int:account sendDescrNotifications sendPlayerNotifications sendAccountNotifications -- ]
-    (Do announcements to client first, since callbacks may cause messages to send out of order)
-    sendDescrNotifications @ if
-        who @ channel @ "descrConnected" systime sendToDescr
-    then
-    sendPlayerNotifications @ if
-        who @ channel @ "playerConnected" systime sendToDescr
-    then
-    sendAccountNotifications @ if
-        who @ channel @ "accountConnected" systime sendToDescr
-    then
-    (And then process callbacks)
-    sendDescrNotifications @ if
-        who @ player @ channel @ "descrEnteredChannel" who @ handleChannelCallbacks
-    then
-    sendPlayerNotifications @ if
-        who @ player @ channel @ "playerEnteredChannel" player @ handleChannelCallbacks
-    then
-    sendAccountNotifications @ if
-        who @ player @ channel @ "accountEnteredChannel" account @ handleChannelCallbacks
-    then
-;
-
 : addConnectionToChannel[ int:who str:channel -- ]
     0 var! announceDescr 0 var! announcePlayer 0 var! announceAccount
     connections @ who @ array_getitem
     ?dup not if
         _startLogWarning
-            "Attempt at unknown descr " who @ strcat " trying to join channel: " strcat channel @ strcat "(Possibly okay if disconnected whilst joining)" strcat
+            "Attempt at unknown descr " who @ strcat " trying to join channel: " strcat channel @ strcat "(Possibly okay if timely disconnect)" strcat
         _stopLogWarning
         exit
     then
+    
+    (Get player / account)
     dup var! connectionDetails
     dup "player" array_getitem ?dup not if #-1 then var! player
     "account" array_getitem var! account
@@ -486,16 +465,9 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
         connectionDetails @ "channels" array_setitem dup connectionDetails !
         connections @ who @ array_setitem connections !
         _startLogDebug
-            "Descr " who @ strcat " joining channel " strcat channel @ strcat
+            "Descr " who @ strcat " joined channel " strcat channel @ strcat
         _stopLogDebug
-        (Cache - byChannel)
-        cacheByChannel @ channel @ array_getitem
-        ?dup not if
-            _startLogInfo
-                "Channel now active: " channel @ strcat
-            _stopLogInfo
-            { }list
-        then
+
         (Check if we need to do announcements about player / account joining channel if they weren't on it previously)
         player @ ok? if
             player @ channel @ playerUsingChannel? not announcePlayer !
@@ -503,172 +475,186 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
         account @ if
             account @ channel @ accountUsingChannel? not announceAccount !
         then
-        (Cache - ByChannel)
+        
+        (Cache - ByChannel - Done last on adding to avoid influencing other checks)
+        cacheByChannel @ channel @ array_getitem
+        ?dup not if
+            _startLogInfo
+                "Channel now active: " channel @ strcat
+            _stopLogInfo
+            { }list
+        then
         dup who @ array_findval not if
             who @ swap array_appenditem
             cacheByChannel @ channel @ array_setitem cacheByChannel !
+            1 announceDescr !
         else
             pop
             "Descr " who @ strcat " joined channel '" strcat channel @ strcat "' but was already in channel cache." strcat logerror
         then
     else pop then
-    (Send announcements as required)
-    channel @ who @ player @ account @
-    announceDescr @ announcePlayer @ announceAccount @ sendChannelConnectionAnnouncements
     
-;
-
-(Utility function to call addToChannel multiple times)
-: addConnectionToChannels[ str:session arr:channels -- ]
-    channels @ foreach nip session @ swap handleJoinChannel repeat
-;
-
-(Removes from channel, updates appropriate caches and does player/account announcements if required)
-(Should probably only be called from removePlayerAndAccountFromSession?)
-(Used retroactively - should NOT actually refer to sessionDetails as the reference may be out of date or gone.)
-(Player may be a non-valid object reference from it being deleted)
-: removeSessionsPlayerAndAccountFromChannel[ str:session dbref:player int:account str:channel  -- ]
-    0 var! announcePlayer
-    0 var! announceAccount
-    player @ #-1 dbcmp not if ( Player could have been deleted so can't use ok? here)
-        _startLogDebug
-            "Removing Player:Session " player @ unparseobj strcat ":" strcat session @ strcat " from channel " strcat channel @ strcat
-        _stopLogDebug
-        (Cache - playersSessionsByChannel)
-        playersSessionsByChannel @ channel @ array_getitem ?dup if (ListByPlayersSessions)
-            dup player @ int array_getitem ?dup if (ChannelPlayerSessionList PlayerSessionList)
-                dup session @ array_findval ?dup if
-                    foreach nip array_delitem repeat (ChannelPlayerSessionList PlayerSessionList SessionList)
-                    ?dup if
-                        swap player @ int array_setitem
-                    else
-                        player @ int array_delitem
-                        1 announcePlayer ! (Last instance of player on channel)
-                    then
-                    (ChannelPlayerSessionList PlayerSessionList)
-                    ?dup if
-                        playersSessionsByChannel @ channel @ array_setitem
-                    else
-                        playersSessionsByChannel @ channel @ array_delitem
-                    then
-                    playersSessionsByChannel !
-                else pop pop then
-            else pop then
-        then
+    (Send announcements as required)
+    (Do announcements to client first, since otherwise callbacks may cause messages to send out of order)
+    announceDescr @ if
+        who @ channel @ "descrConnected" systime sendToDescr
     then
-    _startLogDebug
-        "Removing Account:Session " account @ intostr strcat ":" strcat session @ strcat " from channel " strcat channel @ strcat
-    _stopLogDebug
-    (Cache - accountsSessionsByChannel)
-    accountsSessionsByChannel @ channel @ array_getitem ?dup if (ListByAccountsSessions)
-        dup account @ array_getitem ?dup if (ChannelAccountSessionList AccountSessionList)
-            dup session @ array_findval ?dup if
-                foreach nip array_delitem repeat (ChannelAccountSessionList AccountSessionList SessionList)
-                ?dup if
-                    swap account @ array_setitem
-                else
-                    account @ array_delitem
-                    1 announceAccount ! (Last instance of account on channel)
-                then
-                (ChannelAccountSessionList AccountSessionList)
-                ?dup if
-                    accountsSessionsByChannel @ channel @ array_setitem
-                else
-                    accountsSessionsByChannel @ channel @ array_delitem
-                then
-                accountsSessionsByChannel !
-            else pop pop then
-        else pop then
-    then
-
     announcePlayer @ if
-        session @ player @ channel @ "playerExitedChannel" player @ handleChannelCallbacks
+        who @ channel @ "playerConnected" systime sendToDescr
     then
     announceAccount @ if
-        session @ player @ channel @ "accountExitedChannel" account @ handleChannelCallbacks
+        who @ channel @ "accountConnected" systime sendToDescr
+    then
+    (And then process callbacks)
+    announceDescr @ if
+        who @ player @ channel @ "descrEnteredChannel" who @ handleChannelCallbacks
+    then
+    announcePlayer @ if
+        who @ player @ channel @ "playerEnteredChannel" player @ handleChannelCallbacks
+    then
+    announceAccount @ if
+        who @ player @ channel @ "accountEnteredChannel" account @ handleChannelCallbacks
     then
 ;
 
-(Used retroactively - should NOT actually refer to sessionDetails as the reference may be out of date or gone.)
-(Player may be a non-valid object reference from it being deleted)
-: unsetPlayerAndAccountonConnection[ str:session dbref:player int:account array:channels -- ]
-    _startLogDebug
-        "Removing Player " player @ unparseobj strcat " from " strcat " session " strcat session @ strcat
-    _stopLogDebug
-    channels @ foreach nip session @ player @ account @ 4 rotate removeSessionsPlayerAndAccountFromChannel repeat
-    sessionsByPlayer @ player @ int array_getitem
-    ?dup if
-        dup session @ array_findval ?dup if
+: removeConnectionFromChannel[ str:who str:channel -- ]
+    0 var! announceDescr 0 var! announcePlayer 0 var! announceAccount
+    connections @ who @ array_getitem
+    ?dup not if
+        _startLogWarning
+            "Attempt at unknown descr " who @ strcat " trying to leave channel: " strcat channel @ strcat "(Possibly okay if timely disconnect)" strcat
+        _stopLogWarning
+        exit
+    then
+    
+    (Get player / account)
+    dup var! connectionDetails
+    dup "player" array_getitem ?dup not if #-1 then var! player
+    "account" array_getitem var! account
+    connectionDetails @ "channels" array_getitem
+    dup channel @ array_findval ?dup if
+        foreach nip array_delitem repeat
+        connectionDetails @ "channels" array_setitem dup connectionDetails !
+        connections @ who @ array_setitem connections !
+        _startLogDebug
+            "Descr " who @ strcat " left channel " strcat channel @ strcat
+        _stopLogDebug
+        
+        (Cache - ByChannel - Done first on removing to ensure it influences other checks)
+        cacheByChannel @ channel @ array_getitem
+        ?dup not if
+            _startLogInfo
+                "Channel now inactive (last connection left): " channel @ strcat
+            _stopLogInfo
+            { }list
+        then        
+        dup who @ array_findval ?dup if
             foreach nip array_delitem repeat
-            ?dup if
-                sessionsByPlayer @ player @ int array_setitem sessionsByPlayer !
-            else
-                sessionsByPlayer @ player @ int array_delitem sessionsByPlayer !
-                (Last player session gone)
-                _startLogDebug
-                "Doing _disconnect notification for " player @ unparseobj strcat
-                _stopLogDebug
-                var propQueueEntry
-                prog "_disconnect" array_get_propvals foreach swap propQueueEntry ! (S: prog)
-                    dup string? if dup "$" instring if match else atoi then then dup dbref? not if dbref then
-                    dup program? if
-                        player @ 0 rot "wwwDisconnect" 4 try enqueue pop catch "Failed to enqueue _disconnect event '" propQueueEntry @ strcat "'." strcat logError endcatch
-                    else pop (-prog) then
-                repeat
-            then
-        else pop then
+            cacheByChannel @ channel @ array_setitem cacheByChannel !
+            1 announceDescr !
+        else
+            pop
+            "Descr " who @ strcat " left channel '" strcat channel @ strcat "' but was't in the channel cache to remove." strcat logerror
+        then
+        
+        (Check if we need to do announcements about player / account leaving channel if there's no remaining connections)
+        player @ ok? if
+            player @ channel @ playerUsingChannel? not announcePlayer !
+        then
+        account @ if
+            account @ channel @ accountUsingChannel? not announceAccount !
+        then
+    else pop then
+    
+    (Send announcements as required)
+    (Do announcements to client first, since otherwise callbacks may cause messages to send out of order)
+    (We announce this in case the connection is just leaving/joining channels to change player/account)
+    announcePlayer @ if
+        who @ channel @ "playerDisconnected" systime sendToDescr
+    then
+    announceAccount @ if
+        who @ channel @ "accountDisconnected" systime sendToDescr
+    then
+    announceDescr @ if
+        who @ channel @ "descrDisconnected" systime sendToDescr
+    then
+    (And then process callbacks)
+    announcePlayer @ if
+        who @ player @ channel @ "playerExitedChannel" player @ handleChannelCallbacks
+    then
+    announceAccount @ if
+        who @ player @ channel @ "accountExitedChannel" account @ handleChannelCallbacks
+    then
+    announceDescr @ if
+        who @ player @ channel @ "descrExitedChannel" who @ handleChannelCallbacks
     then
 ;
 
-(Removes from channel, updates appropriate caches and does session/player/account announcements if required)
-(Doesn't handle player:session and account:session so should be called after removePlayerAndAccountFromSession.)
-: removeSessionFromChannel[ str:session dbref:player str:channel -- ]
-    0 var! announceSession
-    (Cache - sessionsByChannel)
-    sessionsByChannel @ channel @ array_getitem ?dup if
-        dup session @ array_findval ?dup if
-            foreach nip array_delitem repeat
-            ?dup if
-                sessionsByChannel @ channel @ array_setitem sessionsByChannel !
-            else
-                sessionsByChannel @ channel @ array_delitem sessionsByChannel !
-                _startLogInfo
-                    "Channel inactive (last session left): " channel @ strcat
-                _stopLogInfo
-            then
-            1 announceSession !
-        else pop then
-    then
-    announceSession @ if
-        session @ player @ channel @ "sessionExitedChannel" session @ handleChannelCallbacks
-    then
-;
 
-: deleteSession[ str:session -- ]
-    connectionsBySession @ session @ array_getitem ?dup if
+: deleteConnection[ int:who -- ]
+    connections @ who @ array_getitem ?dup if
+        var! connectionDetails
         _startLogDebug
             "Deleting session " session @ strcat
         _stopLogDebug
-        dup "channels" array_getitem var! channels
-        dup "descr" array_getitem var! sessionDescr
-        dup "player" array_getitem ?dup not if #-1 else then var! player
-        "account" array_getitem var! account
-        session @ player @ account @ channels @ removePlayerAndAccountFromSession
-        channels @ ?dup if
-            foreach nip session @ player @ rot removeSessionFromChannel repeat
+        
+        (Remove from channels)
+        connectionDetails @ "channels" array_getitem ?dup if
+            foreach nip who @ swap removeConnectionFromChannel repeat
         then
-        (Previously cleared session details first, trying to hold onto them until here now in case a callback tries to refer to them)
-        connectionsBySession @ session @ array_delitem connectionsBySession !
+        
+        (Cache - ByPlayer - we don't check if it's okay as it might have been deleted)
+        connectionDetails @ "player" array_getitem ?dup if
+            var! player
+            cacheByPlayer @ player @ int array_getitem ?dup if
+                dup who @ array_findval ?dup if foreach nip array_delitem repeat then
+                ?dup if
+                    cacheByPlayer @ player @ int array_setitem cacheByPlayer !
+                else
+                    _startLogDebug
+                        "Player's last session disconnected: " player @ unparseobj strcat
+                    _stopLogDebug
+                    cacheByPlayer @ player @ int array_delitem cacheByPlayer !
+                    
+                    var propQueueEntry
+                    prog "_disconnect" array_get_propvals foreach swap propQueueEntry ! (S: prog)
+                        dup string? if dup "$" instring if match else atoi then then dup dbref? not if dbref then
+                        dup program? if
+                            player @ 0 rot "wwwDisconnect" 4 try enqueue pop catch "Failed to enqueue _disconnect event '" propQueueEntry @ strcat "'." strcat logError endcatch
+                        else pop (-prog) then
+                    repeat
+
+                then
+            then
+        then
+        
+        (Cache - ByAccount - we don't check if it's okay as it might have been deleted)
+        connectionDetails @ "account" array_getitem ?dup if
+            var! account
+            cacheByAccount @ account @ int array_getitem ?dup if
+                dup who @ array_findval ?dup if foreach nip array_delitem repeat then
+                ?dup if
+                    cacheByAccount @ account @ int array_setitem cacheByAccount !
+                else
+                    _startLogDebug
+                        "Account's last session disconnected: " account @ unparseobj strcat
+                    _stopLogDebug
+                    cacheByAccount @ account @ int array_delitem cacheByAccount !
+                then
+            then
+        then
+        
+        connections @ who @ array_delitem connections !
         (Cleanly disconnect descr, though this will trigger pidwatch for full clearing up.)
-        sessionDescr @ descr? if
+        who @ descr? if
             _startLogDebug
-                "Disconnecting still connected descr " sessionDescr @ intostr strcat " associated with " strcat session @ strcat
+                "Disconnecting still connected descr " who @ intostr strcat " associated with " strcat session @ strcat
             _stopLogDebug
-            { sessionDescr @ }list systime_precise intostr webSocketSendCloseFrameToDescrs
-            sessionDescr @ descrboot
+            { who @ }list systime_precise intostr webSocketSendCloseFrameToDescrs
+            who @ descrboot
         then
     else
-      "Attempt to delete a non-existing session: " session @ strcat logError
+      "Attempt to delete a non-existing descr: " who @ strcat logError
     then
 ;
 
@@ -745,7 +731,11 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
     else "" then var! data
     message @ case
         "joinChannels" stringcmp not when
-            session @ data @ dup string? if addConnectionToChannel else addConnectionToChannels then
+            session @ data @ dup string? if 
+                addConnectionToChannel 
+            else
+                foreach nip session @ swap addConnectionToChannel repeat
+            then
         end
         default
             "ERROR: Unknown system message: " message @ strcat logError
