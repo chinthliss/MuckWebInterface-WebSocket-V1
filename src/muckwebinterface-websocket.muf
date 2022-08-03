@@ -262,20 +262,20 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
     repeat
 ; PUBLIC playersOnWeb 
 
-: setConnectionProperty[ int:who str:property any:data -- ]
+: setConnectionProperty[ descr:who str:property any:data -- ]
     who @ int? property @ string? AND not if "setConnectionProperty: Invalid arguments" abort then
     connections @ who @ array_getitem ?dup not if exit then
     dup "properties" array_getitem data @ swap property @ array_setitem
     swap "properties" array_setitem connections @ who @ array_setitem connections !
 ; PUBLIC setConnectionProperty 
  
-: getConnectionProperty[ int:who str:property -- any:data ]
+: getConnectionProperty[ descr:who str:property -- any:data ]
     who @ int? property @ string? AND not if "getConnectionProperty: Invalid arguments" abort then
     connections @ who @ array_getitem ?dup not if 0 exit then
     "properties" array_getitem property @ array_getitem
 ; PUBLIC getConnectionProperty 
  
-: delConnectionProperty[ int:who str:property -- ]
+: delConnectionProperty[ descr:who str:property -- ]
     who @ int? property @ string? AND not if "delConnectionProperty: Invalid arguments" abort then
     connections @ who @ array_getitem ?dup not if exit then
     dup "properties" array_getitem property @ array_delitem
@@ -445,7 +445,7 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
     repeat
 ;
 
-: addConnectionToChannel[ int:who str:channel -- ]
+: addConnectionToChannel[ descr:who str:channel -- ]
     0 var! announceDescr 0 var! announcePlayer 0 var! announceAccount
     connections @ who @ array_getitem
     ?dup not if
@@ -591,11 +591,11 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
 ;
 
 
-: deleteConnection[ int:who -- ]
+: deleteConnection[ descr:who -- ]
     connections @ who @ array_getitem ?dup if
         var! connectionDetails
         _startLogDebug
-            "Deleting session " session @ strcat
+            "Deleting descr " who @ strcat
         _stopLogDebug
         
         (Remove from channels)
@@ -612,7 +612,7 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
                     cacheByPlayer @ player @ int array_setitem cacheByPlayer !
                 else
                     _startLogDebug
-                        "Player's last session disconnected: " player @ unparseobj strcat
+                        "Player's last descr disconnected: " player @ unparseobj strcat
                     _stopLogDebug
                     cacheByPlayer @ player @ int array_delitem cacheByPlayer !
                     
@@ -637,7 +637,7 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
                     cacheByAccount @ account @ int array_setitem cacheByAccount !
                 else
                     _startLogDebug
-                        "Account's last session disconnected: " account @ unparseobj strcat
+                        "Account's last descr disconnected: " account @ unparseobj strcat
                     _stopLogDebug
                     cacheByAccount @ account @ int array_delitem cacheByAccount !
                 then
@@ -648,7 +648,7 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
         (Cleanly disconnect descr, though this will trigger pidwatch for full clearing up.)
         who @ descr? if
             _startLogDebug
-                "Disconnecting still connected descr " who @ intostr strcat " associated with " strcat session @ strcat
+                "Disconnecting still connected descr " who @ intostr strcat
             _stopLogDebug
             { who @ }list systime_precise intostr webSocketSendCloseFrameToDescrs
             who @ descrboot
@@ -658,31 +658,44 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
     then
 ;
 
-: handleSetPlayer[ str:session dbref:player -- ]
-    connectionsBySession @ session @ array_getitem
-    ?dup if
-        dup "channels" array_getitem var! channels
-        dup "player" array_getitem ?dup not if #-1 then var! oldPlayer
-        "account" array_getitem var! oldAccount
-        oldPlayer @ #-1 dbcmp not if (Could possibly split this out as this will remove the account:session reference then reset it and potentially trigger disconnect/connect message)
-            oldplayer @ player @ dbcmp if exit then
-            session @ oldPlayer @ oldAccount @ channels @ removePlayerAndAccountFromSession
-        then
+: handleAuthentication[ descr:who str:token -- ]
+    _startLogDebug
+        "Received auth token '" token @ strcat "' for descr " strcat who @ intostr strcat
+    _stopLogDebug                      
+    connections @ who @ array_getitem ?dup not if
+        _startLogWarning
+            "Received an authentication request for descr not in the system: " who @ intostr strcat " ((Possibly okay if timely disconnect))" strcat
+        _startLogWarning
+        exit
+    then
+    var! connectionDetails
+    prog "@tokens/" token @ strcat propdir? if
+        systime_precise connectionDetails @ "acceptedAt" array_setitem connectionDetails !                    
         _startLogDebug
-            "Setting player of session " session @ strcat " to " strcat player @ unparseobj strcat
-            oldplayer @ #-1 dbcmp not if " (Previously " strcat oldPlayer @ unparseobj strcat ")" strcat then
-        _stopLogDebug
-        player @ connectionsBySession @ session @ array_getitem "player" array_setitem
-        (Setting acount here since they're handled from the muck through the player reference)
-        (Presently not unsetting an account though, since such shouldn't change)
-        player @ dup ok? if acct_any2aid else pop 0 then ?dup if
-            swap "account" array_setitem
+            "Accepted auth token '" token @ strcat "' for descr " strcat descr intostr strcat
+        _stopLogDebug                      
+        
+        (Account)
+        prog "@tokens/" token @ strcat "/account" strcat getprop var! account
+        account @ if 
+            account @ connectionDetails @ "account" array_setitem connectionDetails !
+            _startLogDebug
+                "Account for " who @ intostr strcat " set to: " strcat account @ intostr strcat
+            _stopLogDebug                      
+            
+            CACHE
         then
-        connectionsBySession @ session @ array_setitem connectionsBySession !
-        player @ ok? if
-            (Ensure channels deal with the change)
-            channels @ ?dup if session @ swap handleJoinChannels then
-            (Cache - sessions by player)
+        
+        (Player)
+        prog "@tokens/" token @ strcat "/character" strcat getprop dup dbref? not if pop #-1 then var! player
+        player @ player? if
+            player @ connectionDetails @ "player" array_setitem connectionDetails ! 
+            _startLogDebug
+                "Player for " who @ intostr strcat " set to: " strcat account @ intostr strcat
+            _stopLogDebug                      
+            
+            CACHE, including _connect
+
             sessionsByPlayer @ player @ int array_getitem
             ?dup not if
                 { }list (First session, treat as new connect)
@@ -696,10 +709,34 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
                 then
                 repeat
             then
-            dup session @ array_findval if pop else session @ swap array_appenditem sessionsByPlayer @ player @ int array_setitem sessionsByPlayer ! then
         then
+
+        connectionDetails @ connections @ who @ array_setitem connections !
+        
+        _startLogDebug
+            "Completed handshake for descr " who @ intostr strcat " as: " strcat session @ sessionToString strcat
+        _stopLogDebug
+
+        (Notify connection)
+        { who @ }list "accepted " account @ intostr strcat "/" strcat player @ intostr strcat
+        $ifdef trackBandwidth
+            dup strlen 2 + (For \r\n) "websocket_out" trackBandwidthCounts
+        $endif
+        _startLogDebug
+            "Informing descr " who @ intostr strcat " of connection as " strcat account @ intostr strcat "/" strcat player @ intostr strcat
+        _stopLogDebug
+        webSocketSendTextFrameToDescrs
+    
+        (TODO: Re-enable token clearup)
+        (prog "@tokens/" token @ strcat "/" strcat removepropdir)
     else
-        "Attempt to set/clear player from invalid session: " session @ strcat logerror
+        _startLogWarning
+            "Websocket for descr " who @ intostr strcat " gave an auth token that wasn't valid: " strcat payload @ 5 strcut nip strcat
+        _stopLogWarning
+        _startLogDebug
+            "Informing descr " who @ intostr strcat " of token rejection." strcat
+        _stopLogDebug                        
+        { who @ }list "invalidtoken" webSocketSendTextFrameToDescrs
     then
 ;
  
@@ -762,7 +799,7 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
     session @ connectionsBySession @ { session @ "player" }list array_nested_get ?dup not if #-1 then channel @ message @ data @ handleChannelCallbacks
 ;
  
-: handleIncomingTextFrame[ str:session str:payload ]
+: handleIncomingTextFrame[ descr:who str:payload ]
     connectionsBySession @ session @ array_getitem ?dup if (Because it may have dropped elsewhere)
         var! connectionDetails
         connectionDetails @ "pid" array_getitem pid = if
@@ -782,49 +819,7 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
                 endcase
             else (Still in handshake - only thing we're expecting is 'auth <token>')
                 payload @ "auth " instring 1 = if
-                    payload @ 5 strcut nip var! token
-                    _startLogDebug
-                        "Received auth token '" token @ strcat "' for descr " strcat descr intostr strcat
-                    _stopLogDebug                      
-                    prog "@tokens/" token @ strcat propdir? if
-                        systime_precise connectionDetails @ "acceptedAt" array_setitem connectionDetails !                    
-                        _startLogDebug
-                            "Accepted auth token '" token @ strcat "' for descr " strcat descr intostr strcat
-                        _stopLogDebug                      
-                        
-                        prog "@tokens/" token @ strcat "/account" strcat getprop
-                        ?dup if connectionDetails @ "account" array_setitem connectionDetails ! then
-                        
-                        prog "@tokens/" token @ strcat "/character" strcat getprop dup dbref? not if pop #-1 then
-                        (Don't set player manually as we have a dedicated function for it - but make sure we save the present session first)
-                        connectionDetails @ connectionsBySession @ session @ array_setitem connectionsBySession !
-                        session @ swap handleSetPlayer
-                        
-                        _startLogDebug
-                            "Completed handshake for descr " descr intostr strcat " as: " strcat session @ sessionToString strcat
-                        _stopLogDebug
-
-                        (Notify connection)
-                        { descr }list "session " session @ strcat
-                        $ifdef trackBandwidth
-                            dup strlen 2 + (For \r\n) "websocket_out" trackBandwidthCounts
-                        $endif
-                        _startLogDebug
-                            "Informing descr " descr intostr strcat " of session: " strcat session @ strcat
-                        _stopLogDebug
-                        webSocketSendTextFrameToDescrs
-                    
-                        (TODO: Re-enable token clearup)
-                        (prog "@tokens/" token @ strcat "/" strcat removepropdir)
-                    else
-                        _startLogWarning
-                            "Websocket for descr " descr intostr strcat " gave an auth token that wasn't valid: " strcat payload @ 5 strcut nip strcat
-                        _stopLogWarning
-                        _startLogDebug
-                            "Informing descr " descr intostr strcat " of token rejection." strcat
-                        _stopLogDebug                        
-                        { descr }list "invalidtoken" webSocketSendTextFrameToDescrs
-                    then
+                    who @ payload @ 5 strcut nip handleAuthentication
                 else
                     _startLogWarning
                         "Websocket for descr " descr intostr strcat " sent the following text instead of the expected auth request: " strcat payload @ strcat
