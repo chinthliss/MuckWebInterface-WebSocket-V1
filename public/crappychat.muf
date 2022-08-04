@@ -14,7 +14,7 @@ Simple program to test/demo the newer MWI program.
 
 $include $www/liveconnect
 
-: onChat[ channel message session player data -- ]
+: onChat[ channel message who player data -- ]
    player @ ok? not if exit then (Players only)
    (Sending out a data object in the form [playerDbref playerName message])
    (Because this is just a simple demo a player's name is sent out with each message)   
@@ -27,29 +27,29 @@ $include $www/liveconnect
    sendToChannel
 ; PUBLIC onChat
 
-: onPlayerEnteredChannel[ channel message session player data -- ]
+: onPlayerEnteredChannel[ channel message who player data -- ]
    { }list
    "crappychat" playersOnChannel foreach nip name swap array_appenditem repeat
    "crappychat" swap "playerList" swap sendToChannel
 ; PUBLIC onPlayerEnteredChannel
 
-: onPlayerExitedChannel[ channel message session player data -- ]
+: onPlayerExitedChannel[ channel message who player data -- ]
    { }list
    "crappychat" playersOnChannel foreach nip name swap array_appenditem repeat
    "crappychat" swap "playerList" swap sendToChannel
 ; PUBLIC onPlayerExitedChannel
 
-: onSessionEnteredChannel[ channel message session player data -- ]
-   "crappychat" "sessionCount" "crappychat" sessionsOnChannel array_count sendToChannel   
-   session @ "crappychat" "playerList" 
+: onDescrEnteredChannel[ channel message who player data -- ]
+   "crappychat" "connectionCount" "crappychat" descrsOnChannel array_count sendToChannel
+   who @ "crappychat" "playerList"
    { }list
    "crappychat" playersOnChannel foreach nip name swap array_appenditem repeat
-   sendToSession
-; PUBLIC onSessionEnteredChannel
+   sendToDescr
+; PUBLIC onDescrEnteredChannel
 
-: onSessionExitedChannel[ channel message session player data -- ]
-   "crappychat" "sessionCount" "crappychat" sessionsOnChannel array_count sendToChannel
-; PUBLIC onSessionExitedChannel
+: onDescrExitedChannel[ channel message who player data -- ]
+   "crappychat" "descrCount" "crappychat" descrsOnChannel array_count sendToChannel
+; PUBLIC ondescrExitedChannel
 
 : main
    "This doesn't do anything from the muck side." .tell

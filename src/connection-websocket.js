@@ -134,13 +134,13 @@ export default class ConnectionWebSocket extends Connection {
             }
 
             if (!this.handshakeCompleted) {
-                if (message.startsWith('session ')) {
-                    this.core.logDebug("WebSocket received session.");
-                    let session = message.slice(8);
+                if (message.startsWith('accepted ')) {
+                    this.core.logDebug("WebSocket received descr.");
+                    let descr = message.slice(9);
                     this.clearConnectionTimeoutIfSet();
                     this.handshakeCompleted = true;
                     this.connection.onmessage = this.handleWebSocketMessage;
-                    this.core.updateAndDispatchSession(session);
+                    this.core.updateAndDispatchDescr(descr);
                     this.core.updateAndDispatchStatus(Core.connectionStates.connected);
                     //Resend anything that was buffered
                     for (let i = 0; i++; i < this.connectingOutgoingMessageBuffer.length) {
@@ -153,7 +153,7 @@ export default class ConnectionWebSocket extends Connection {
                     this.core.connectionFailed("Server refused authentication token.");
                     return;
                 }
-                this.core.logError("WebSocket got an unexpected message whilst expecting session: " + message);
+                this.core.logError("WebSocket got an unexpected message whilst expecting descr: " + message);
                 return;
             }
             this.core.logError("Unexpected message during login: " + message);

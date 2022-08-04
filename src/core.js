@@ -48,9 +48,9 @@ export default class Core {
     connectionStatus = Core.connectionStates.disconnected;
 
     /**
-     * @type {string}
+     * @type {number}
      */
-    session = "";
+    descr = 0;
 
     /**
      * @type {number}
@@ -172,7 +172,7 @@ export default class Core {
         let newChannel = new Channel(channelName, this);
         this.channels[channelName] = newChannel;
         //Only send join request if we have a connection, otherwise we'll join multiple as part of the initial connection
-        if (this.session) this.sendSystemMessage('joinChannels', channelName);
+        if (this.descr) this.sendSystemMessage('joinChannels', channelName);
         return newChannel.interface;
     };
 
@@ -206,12 +206,12 @@ export default class Core {
 
     /**
      * Called by present connection
-     * @param {string} newSession The New session
+     * @param {number} newDescr The New Descr
      */
-    updateAndDispatchSession(newSession) {
-        if (this.session === newSession) return;
-        this.logDebug(newSession ? "Session changed to " + newSession : "Session cleared.");
-        this.session = newSession;
+    updateAndDispatchDescr(newDescr) {
+        if (this.descr === newDescr) return;
+        this.logDebug(newDescr ? "Descr changed to " + newDescr : "Descr cleared.");
+        this.descr = newDescr;
         // Maybe need to send channel join requests?
         let channelsToJoin = [];
         for (let channel in this.channels) {
@@ -457,7 +457,7 @@ export default class Core {
         this.logDebug("Starting connection.");
         this.connectionRetry = -1;
         this.updateAndDispatchStatus(Core.connectionStates.connecting);
-        this.updateAndDispatchSession('');
+        this.updateAndDispatchDescr(0);
         this.updateAndDispatchPlayer(-1, '');
         for (let channel in this.channels) {
             if (this.channels.hasOwnProperty(channel)) {

@@ -237,8 +237,8 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
 ; PUBLIC playerUsingChannel? 
 
   (Check to see if an account is on the given channel)
-: accountUsingChannel?[ dbref:player int:account -- int:bool ]
-    cacheByAccount @ account @ int array_getitem ?dup not if 0 exit then
+: accountUsingChannel?[ int:account str:channel -- int:bool ]
+    cacheByAccount @ account @ array_getitem ?dup not if 0 exit then
     cacheByChannel @ channel @ array_getitem ?dup not if pop 0 exit then
     array_intersect array_count
 ; PUBLIC accountUsingChannel? 
@@ -284,7 +284,6 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
 
 : dispatchStringToDescrs[ arr:descrs str:string -- ]
     string @ ensureValidUTF8 string !
-    { }list var! descrs
     $ifdef trackbandwidth
         descrs @ array_count string @ strlen array_count 2 + * "websocket_out" trackBandwidthCounts
     $endif
@@ -308,7 +307,7 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
     _startLogDebug
         { }list var! debugOutput
         descrs @ foreach nip
-            "[>>] " message @ strcat " " strcat swap strcat ": " strcat over dup "," instr strcut nip strcat
+            "[>>] " message @ strcat " " strcat swap intostr strcat ": " strcat over dup "," instr strcut nip strcat
             debugOutput @ array_appenditem debugOutput !
         repeat
         debugOutput @
@@ -319,14 +318,14 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
 (This is the root function for sending - all sendTo functions break down their requirements to call this one)
 (It assumes argument checking has been performed already)
 : sendChannelMessageToDescrs[ arr:descrs str:channel str:message any:data -- ]
-    channel @ message @ data @ prepareMessage
+    channel @ message @ data @ prepareChannelMessage
     $ifdef trackBandwidth
         message @ strlen descrs @ array_count * "channel_" channel @ strcat "_out" strcat trackBandwidthCounts
     $endif
     _startLogDebug
         { }list var! debugOutput
         descrs @ foreach nip
-            "[>>][" channel @ strcat "." strcat message @ strcat "] " strcat swap strcat ": " strcat
+            "[>>][" channel @ strcat "." strcat message @ strcat "] " strcat swap intostr strcat ": " strcat
             (Trim down to data part of outgoing string rather than processing it again)
             over dup "," instr strcut nip dup "," instr strcut nip strcat
             debugOutput @ array_appenditem debugOutput !
@@ -345,7 +344,7 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
 
 : sendToDescr[ str:who str:channel str:message any:data -- ]
     who @ int? channel @ string? message @ string? AND AND not if "Invalid arguments" abort then
-    who @ "" stringcmp not if "Who can't be blank" abort then
+    who @ not if "Who can't be blank" abort then
     message @ "" stringcmp not if "Message can't be blank" abort then
     channel @ "" stringcmp not if "Channel can't be blank" abort then
     { who @ }list channel @ message @ data @ sendChannelMessageToDescrs
@@ -392,7 +391,7 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
     account @ not if "Account can't be blank" abort then
     message @ "" stringcmp not if "Message can't be blank" abort then
     channel @ "" stringcmp not if "Channel can't be blank" abort then
-    cacheByAccount @ account @ int array_getitem ?dup not if 0 exit then
+    cacheByAccount @ account @ array_getitem ?dup not if 0 exit then
     cacheByChannel @ channel @ array_getitem ?dup not if pop 0 exit then
     array_intersect
     ?dup if
@@ -403,7 +402,7 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
 (Separate so that it can be called by internal processes)
 : handleChannelCallbacks[ int:triggeringDescr dbref:triggeringPlayer str:channel str:message any:data -- ]
     _startLogDebug
-        "Handling message from " triggeringDescr @ int strcat "/" strcat triggeringPlayer @ unparseobj strcat " on MUCK: " strcat channel @ strcat ":" strcat message @ strcat
+        "Handling message from " triggeringDescr @ intostr strcat "/" strcat triggeringPlayer @ unparseobj strcat " on MUCK: " strcat channel @ strcat ":" strcat message @ strcat
     _stopLogDebug
     depth var! startDepth
     "on" message @ strcat var! functionToCall var programToCall
@@ -450,7 +449,7 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
     connections @ who @ array_getitem
     ?dup not if
         _startLogWarning
-            "Attempt at unknown descr " who @ strcat " trying to join channel: " strcat channel @ strcat "(Possibly okay if timely disconnect)" strcat
+            "Attempt at unknown descr " who @ intostr strcat " trying to join channel: " strcat channel @ strcat "(Possibly okay if timely disconnect)" strcat
         _stopLogWarning
         exit
     then
@@ -465,7 +464,7 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
         connectionDetails @ "channels" array_setitem dup connectionDetails !
         connections @ who @ array_setitem connections !
         _startLogDebug
-            "Descr " who @ strcat " joined channel " strcat channel @ strcat
+            "Descr " who @ intostr strcat " joined channel " strcat channel @ strcat
         _stopLogDebug
 
         (Check if we need to do announcements about player / account joining channel if they weren't on it previously)
@@ -490,7 +489,7 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
             1 announceDescr !
         else
             pop
-            "Descr " who @ strcat " joined channel '" strcat channel @ strcat "' but was already in channel cache." strcat logerror
+            "Descr " who @ intostr strcat " joined channel '" strcat channel @ strcat "' but was already in channel cache." strcat logerror
         then
     else pop then
     
@@ -522,7 +521,7 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
     connections @ who @ array_getitem
     ?dup not if
         _startLogWarning
-            "Attempt at unknown descr " who @ strcat " trying to leave channel: " strcat channel @ strcat "(Possibly okay if timely disconnect)" strcat
+            "Attempt at unknown descr " who @ intostr strcat " trying to leave channel: " strcat channel @ strcat "(Possibly okay if timely disconnect)" strcat
         _stopLogWarning
         exit
     then
@@ -537,7 +536,7 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
         connectionDetails @ "channels" array_setitem dup connectionDetails !
         connections @ who @ array_setitem connections !
         _startLogDebug
-            "Descr " who @ strcat " left channel " strcat channel @ strcat
+            "Descr " who @ intostr strcat " left channel " strcat channel @ strcat
         _stopLogDebug
         
         (Cache - ByChannel - Done first on removing to ensure it influences other checks)
@@ -554,7 +553,7 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
             1 announceDescr !
         else
             pop
-            "Descr " who @ strcat " left channel '" strcat channel @ strcat "' but was't in the channel cache to remove." strcat logerror
+            "Descr " who @ intostr strcat " left channel '" strcat channel @ strcat "' but was't in the channel cache to remove." strcat logerror
         then
         
         (Check if we need to do announcements about player / account leaving channel if there's no remaining connections)
@@ -595,9 +594,10 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
     connections @ who @ array_getitem ?dup if
         var! connectionDetails
         _startLogDebug
-            "Deleting descr " who @ strcat
+            "Deleting descr " who @ intostr strcat ": " strcat connectionDetails @ anythingToString strcat 
         _stopLogDebug
         
+        (TODO: NOT WORKING)
         (Remove from channels)
         connectionDetails @ "channels" array_getitem ?dup if
             foreach nip who @ swap removeConnectionFromChannel repeat
@@ -631,15 +631,15 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
         (Cache - ByAccount - we don't check if it's okay as it might have been deleted)
         connectionDetails @ "account" array_getitem ?dup if
             var! account
-            cacheByAccount @ account @ int array_getitem ?dup if
+            cacheByAccount @ account @ array_getitem ?dup if
                 dup who @ array_findval ?dup if foreach nip array_delitem repeat then
                 ?dup if
-                    cacheByAccount @ account @ int array_setitem cacheByAccount !
+                    cacheByAccount @ account @ array_setitem cacheByAccount !
                 else
                     _startLogDebug
-                        "Account's last descr disconnected: " account @ unparseobj strcat
+                        "Account's last descr disconnected: " account @ intostr strcat
                     _stopLogDebug
-                    cacheByAccount @ account @ int array_delitem cacheByAccount !
+                    cacheByAccount @ account @ array_delitem cacheByAccount !
                 then
             then
         then
@@ -654,7 +654,7 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
             who @ descrboot
         then
     else
-      "Attempt to delete a non-existing descr: " who @ strcat logError
+      "Attempt to delete a non-existing descr: " who @ intostr strcat logError
     then
 ;
 
@@ -664,8 +664,8 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
     _stopLogDebug                      
     connections @ who @ array_getitem ?dup not if
         _startLogWarning
-            "Received an authentication request for descr not in the system: " who @ intostr strcat " ((Possibly okay if timely disconnect))" strcat
-        _startLogWarning
+            "Received an authentication request for descr not in the system: " who @ intostr strcat " (Possibly okay if timely disconnect)" strcat
+        _stopLogWarning
         exit
     then
     var! connectionDetails
@@ -683,7 +683,22 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
                 "Account for " who @ intostr strcat " set to: " strcat account @ intostr strcat
             _stopLogDebug                      
             
-            CACHE
+            (Cache - ByAccount)
+            cacheByAccount @ account @ array_getitem ?dup not if 
+                { }list
+                _startLogDebug
+                "First instance of account " account @ intostr strcat " joined, via descr " strcat who @ intostr strcat
+                _stopLogDebug
+            then
+            (S: DescrList)
+            dup who @ array_findval if
+                _startLogWarning
+                    "Descr was already in byAccount cache when we came to add it: " who @ intostr strcat
+                _stopLogWarning
+            else
+                who @ swap array_appenditem
+                cacheByAccount @ account @ array_setitem cacheByAccount !
+            then
         then
         
         (Player)
@@ -691,39 +706,51 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
         player @ player? if
             player @ connectionDetails @ "player" array_setitem connectionDetails ! 
             _startLogDebug
-                "Player for " who @ intostr strcat " set to: " strcat account @ intostr strcat
+                "Player for " who @ intostr strcat " set to: " strcat player @ unparseobj intostr strcat
             _stopLogDebug                      
             
-            CACHE, including _connect
+            (Cache - ByPlayer)
+            cacheByPlayer @ player @ int array_getitem ?dup not if 
+                { }list
+                _startLogDebug
+                "First instance of player " player @ unparseobj intostr strcat " joined, via descr " strcat who @ intostr strcat
+                _stopLogDebug
 
-            sessionsByPlayer @ player @ int array_getitem
-            ?dup not if
-                { }list (First session, treat as new connect)
                 _startLogDebug
                 "Doing _connect notification for " player @ unparseobj strcat
                 _stopLogDebug
                 prog "_connect" array_get_propvals foreach swap var! propQueueEntry (S: prog)
-                dup string? if dup "$" instring if match else atoi then then dup dbref? not if dbref then
-                dup program? if
-                    player @ 0 rot "wwwConnect" 4 try enqueue pop catch "Failed to enqueue _connect event '" propQueueEntry @ strcat "'." strcat logError endcatch
-                then
+                    dup string? if dup "$" instring if match else atoi then then dup dbref? not if dbref then
+                    dup program? if
+                        player @ 0 rot "wwwConnect" 4 try enqueue pop catch "Failed to enqueue _connect event '" propQueueEntry @ strcat "'." strcat logError endcatch
+                    then
                 repeat
+            then
+            
+            (S: DescrList)
+            dup who @ array_findval if
+                _startLogWarning
+                    "Descr was already in byPlayer cache when we came to add it: " who @ intostr strcat
+                _stopLogWarning
+            else
+                who @ swap array_appenditem
+                cacheByPlayer @ player @ int array_setitem cacheByPlayer !
             then
         then
 
         connectionDetails @ connections @ who @ array_setitem connections !
         
         _startLogDebug
-            "Completed handshake for descr " who @ intostr strcat " as: " strcat session @ sessionToString strcat
+            "Completed handshake for descr " who @ intostr strcat " as: " strcat connectionDetails @ anythingToString strcat
         _stopLogDebug
 
         (Notify connection)
-        { who @ }list "accepted " account @ intostr strcat "/" strcat player @ intostr strcat
+        { who @ }list "accepted " who @ intostr strcat
         $ifdef trackBandwidth
             dup strlen 2 + (For \r\n) "websocket_out" trackBandwidthCounts
         $endif
         _startLogDebug
-            "Informing descr " who @ intostr strcat " of connection as " strcat account @ intostr strcat "/" strcat player @ intostr strcat
+            "Informing descr " who @ intostr strcat " of accepted connection" strcat
         _stopLogDebug
         webSocketSendTextFrameToDescrs
     
@@ -731,7 +758,7 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
         (prog "@tokens/" token @ strcat "/" strcat removepropdir)
     else
         _startLogWarning
-            "Websocket for descr " who @ intostr strcat " gave an auth token that wasn't valid: " strcat payload @ 5 strcut nip strcat
+            "Websocket for descr " who @ intostr strcat " gave an auth token that wasn't valid: " strcat token @ strcat
         _stopLogWarning
         _startLogDebug
             "Informing descr " who @ intostr strcat " of token rejection." strcat
@@ -740,20 +767,20 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
     then
 ;
  
-: handlePingResponse[ str:session float:pingResponse -- ]
-    connectionsBySession @ session @ array_getitem
-    ?dup if (Occasionally sessions witnessed being deleted before a ping response is dealt with)
-        var! sessionDetails
-        systime_precise sessionDetails @ "lastPingIn" array_setitem sessionDetails !
-        systime_precise sessionDetails @ "lastPingOut" array_getitem - sessionDetails @ "ping" array_setitem sessionDetails !
-        sessionDetails @ connectionsBySession @ session @ array_setitem connectionsBySession !
+: handlePingResponse[ descr:who float:pingResponse -- ]
+    connections @ who @ array_getitem
+    ?dup if (Occasionally connections witnessed being deleted before a ping response is dealt with)
+        var! connectionDetails
+        systime_precise connectionDetails @ "lastPingIn" array_setitem connectionDetails !
+        systime_precise connectionDetails @ "lastPingOut" array_getitem - connectionDetails @ "ping" array_setitem connectionDetails !
+        connectionDetails @ connections @ who @ array_setitem connections !
     then
 ;
  
-: handleIncomingSystemMessage[ str:session str:message str:dataAsJson ] (Session should already be confirmed to be valid.)
-    session @ not message @ not OR if "handleIncomingSystemMessageFrom called with either session or message blank." logError exit then
+: handleIncomingSystemMessage[ descr:who str:message str:dataAsJson ] (Descr should already be confirmed to be valid.)
+    who @ not message @ not OR if "handleIncomingSystemMessageFrom called with either descr or message blank." logError exit then
     _startLogDebug
-        "[<<] " message @ strcat " " strcat session @ strcat ": " strcat dataAsJson @ strcat
+        "[<<] " message @ strcat " " strcat who @ intostr strcat ": " strcat dataAsJson @ strcat
     _stopLogDebug
     $ifdef trackBandwidth
         message @ strlen "system_in" trackBandwidthCounts
@@ -768,10 +795,10 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
     else "" then var! data
     message @ case
         "joinChannels" stringcmp not when
-            session @ data @ dup string? if 
+            who @ data @ dup string? if 
                 addConnectionToChannel 
             else
-                foreach nip session @ swap addConnectionToChannel repeat
+                foreach nip who @ swap addConnectionToChannel repeat
             then
         end
         default
@@ -780,10 +807,10 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
     endcase
 ;
  
-: handleIncomingMessage[ str:session str:channel str:message str:dataAsJson ] (Session should already be confirmed to be valid.)
-    session @ not channel @ not message @ not OR OR if "handleIncomingMessageFrom called with either session, channel or message blank." logError exit then
+: handleIncomingMessage[ descr:who str:channel str:message str:dataAsJson ] (Descr should already be confirmed to be valid.)
+    who @ not channel @ not message @ not OR OR if "handleIncomingMessageFrom called with either descr, channel or message blank." logError exit then
     _startLogDebug
-        "[<<][" channel @ strcat "." strcat message @ strcat "] " strcat session @ strcat ": " strcat dataAsJson @ strcat
+        "[<<][" channel @ strcat "." strcat message @ strcat "] " strcat who @ intostr strcat ": " strcat dataAsJson @ strcat
     _stopLogDebug
     $ifdef trackBandwidth
         message @ strlen "channel_" channel @ strcat "_in" strcat trackBandwidthCounts
@@ -796,22 +823,22 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
             exit
         endcatch
     else "" then var! data
-    session @ connectionsBySession @ { session @ "player" }list array_nested_get ?dup not if #-1 then channel @ message @ data @ handleChannelCallbacks
+    who @ connections @ { who @ "player" }list array_nested_get ?dup not if #-1 then channel @ message @ data @ handleChannelCallbacks
 ;
  
 : handleIncomingTextFrame[ descr:who str:payload ]
-    connectionsBySession @ session @ array_getitem ?dup if (Because it may have dropped elsewhere)
+    connections @ who @ array_getitem ?dup if (Because it may have dropped elsewhere)
         var! connectionDetails
         connectionDetails @ "pid" array_getitem pid = if
             connectionDetails @ "acceptedAt" array_getitem if (Are we still in the handshake?)
-                payload @ dup string? not if pop "" then dup strlen 3 > not if "Malformed (or non-string) payload from session " session @ strcat ": " strcat swap strcat logError then
+                payload @ dup string? not if pop "" then dup strlen 3 > not if "Malformed (or non-string) payload from descr " who @ intostr strcat ": " strcat swap strcat logError then
                 3 strcut var! data
                 case
                     "MSG" stringcmp not when (Expected format is Channel, Message, Data)
-                        session @ data @ dup "," instr strcut swap dup strlen ?dup if 1 - strcut pop then swap dup "," instr strcut swap dup strlen ?dup if 1 - strcut pop then swap handleIncomingMessage
+                        who @ data @ dup "," instr strcut swap dup strlen ?dup if 1 - strcut pop then swap dup "," instr strcut swap dup strlen ?dup if 1 - strcut pop then swap handleIncomingMessage
                     end
                     "SYS" stringcmp not when (Expected format is Message,Data)
-                        session @ data @ dup "," instr strcut swap dup strlen ?dup if 1 - strcut pop then swap handleIncomingSystemMessage
+                        who @ data @ dup "," instr strcut swap dup strlen ?dup if 1 - strcut pop then swap handleIncomingSystemMessage
                     end
                     default
                         "ERROR: Unrecognized text frame from descr " descr intostr strcat ": " strcat swap strcat logError
@@ -838,7 +865,7 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
     then
 ;
 
-: attemptToProcessWebsocketMessage[ session buffer -- bufferRemaining ]
+: attemptToProcessWebsocketMessage[ descr:who array:buffer -- bufferRemaining ]
     buffer @ array_count var! startingBufferLength
     buffer @ websocketGetFrameFromIncomingBuffer (Returns opCode payLoad remainingBuffer)
     buffer ! var! payLoad var! opCode
@@ -856,7 +883,7 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
             $ifdef trackBandwidth
                 over array_count over strlen + 2 + "websocket_out" trackBandwidthCounts
             $endif
-            descr rot rot webSocketSendFrame
+            who @ rot rot webSocketSendFrame
             pid kill pop (Prevent further processing, pidwatch will react to the disconnect)
         end
         137 = when (Ping request, need to reply with pong)
@@ -867,31 +894,31 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
             $ifdef trackBandwidth
                 over array_count over strlen + 2 + "websocket_out" trackBandwidthCounts
             $endif
-            descr rot rot webSocketSendFrame
+            who rot rot webSocketSendFrame
         end
         138 = when (Pong reply to a ping we sent - the packet should be the systime_precise we sent it at)
             payload @ strtof ?dup if
                 _startLogDebug
                     "Websocket Poing response received."
                 _stopLogDebug
-                session @ swap handlePingResponse
+                who @ swap handlePingResponse
             then
             { }list exit
         end
         129 = when (Text frame, an actual message!)
-            session @ payload @ handleIncomingTextFrame (In separate function just for readibility)
+            who @ payload @ handleIncomingTextFrame
         end
         default (This shouldn't happen as we previously check the opcode is one we support)
             "Websocket code didn't know what to do with an opcode: " opCode @ itoh strcat logError
         end
     endcase
     (In case there were multiple, we need to try to process another)
-    buffer @ dup if session @ swap attemptToProcessWebsocketMessage then
+    buffer @ dup if who @ swap attemptToProcessWebsocketMessage then
 ;
 
-: clientProcess[ clientSession -- ]
+: clientProcess[ descr:who -- ]
     _startLogDebug
-        "Starting client process for " clientSession @ strcat " on descr " strcat descr intostr strcat
+        "Starting client process for " who @ intostr strcat
     _stopLogDebug
     var event var eventArguments
     1 var! keepGoing
@@ -910,7 +937,7 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
             "HTTP.input_raw" stringcmp not when (Possible websocket data!)
                 buffer @
                 dup array_count eventArguments @ array_insertrange
-                clientSession @ swap attemptToProcessWebsocketMessage
+                who @ swap attemptToProcessWebsocketMessage
                 buffer !
             end
             "HTTP.input" stringcmp not when (Not used, just need to be aware of it)
@@ -927,7 +954,7 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
         depth popn
     repeat
     _startLogDebug
-        "Ending client process for " clientSession @ strcat " on descr " strcat descr intostr strcat
+        "Ending client process for " who @ intostr strcat
     _stopLogDebug
 ;
 
@@ -985,21 +1012,19 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
 	$endif
     webSocketSendTextFrameToDescrs    
     
-	createNewSessionID var! session
 	{
 		"descr" descr
 		"pid" pid
 		"channels" { }list
 		"properties" { }dict
 		"connectedAt" connectedAt @
-		"session" session @
 	}dict
     $ifdef is_dev
         dup arrayDump
     $endif
-    connectionsBySession @ session @ array_setitem connectionsBySession !    
+    connections @ descr array_setitem connections !    
     
-    session @ clientProcess
+    descr clientProcess
 
 	_startLogDebug
 		"Client connection on " descr intostr strcat " ran for " strcat systime connectedAt @ - intostr strcat "s." strcat
@@ -1010,8 +1035,8 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
     var eventArguments
     var eventName
     var toPing
-    var session 
-    var sessionDetails    
+    var connection
+    var connectionDetails
     { }dict var! clientPIDs (In the form pid:descr)
     "Server Process started on PID " pid intostr strcat "." strcat logNotice
     prog "@lastUptime" systime setprop
@@ -1023,49 +1048,48 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
                 serverProcess @ pid = not if "ServerProcess shutting down since we don't match the expected pid of " serverProcess @ intostr strcat logError exit then
                 heartbeatTime "heartbeat" timer_start
                 { }list toPing !
-                connectionsBySession @ foreach
-                    sessionDetails ! session !
-                    sessionDetails @ "pid" array_getitem ispid? not if
+                connections @ foreach
+                    connectionDetails ! connection !
+                    connectionDetails @ "pid" array_getitem ispid? not if
                         _startLogDebug
-                            "Disconnecting " session @ sessionToString strcat " due to PID being dead." strcat
+                            "Disconnecting " connectionDetails @ connectionDetailsToString strcat " due to PID being dead." strcat
                         _stopLogDebug
-                        session @ deleteSession continue
+                        connection @ deleteConnection continue
                     then
-                    sessionDetails @ "descr" array_getitem descr? not if
+                    connectionDetails @ "descr" array_getitem descr? not if
                         _startLogDebug
-                            "Disconnecting " session @ sessionToString strcat " due to descr being disconnected." strcat
+                            "Disconnecting " connectionDetails @ connectionDetailsToString strcat " due to descr being disconnected." strcat
                         _stopLogDebug
-                        session @ deleteSession continue
+                        connection @ deleteConnection continue
                     then
-                    sessionDetails @ "acceptedAt" array_getitem not if continue then (Not finished handshake, so we don't ping)
+                    connectionDetails @ "acceptedAt" array_getitem not if continue then (Not finished handshake, so we don't ping)
                     (Ping related)
-                    sessionDetails @ "lastPingOut" array_getitem sessionDetails @ "lastPingIn" array_getitem
+                    connectionDetails @ "lastPingOut" array_getitem connectionDetails @ "lastPingIn" array_getitem
                     over over > if (If lastPingOut is higher we're expecting a response. On initial connect or reconnect both are 0)
                         pop systime_precise swap - maxPing > if
                             _startLogDebug
-                                "Disconnecting " session @ sessionToString strcat " due to no response to ping." strcat
+                                "Disconnecting " connectionDetails @ connectionDetailsToString strcat " due to no response to ping." strcat
                             _stopLogDebug
-                            session @ deleteSession continue
+                            connection @ deleteConnection continue
                         then
                     else (Otherwise we're eligible to be pinged)
-                        nip (keep last in) sessionDetails @ "connectedAt" array_getitem math.max
+                        nip (keep last in) connectionDetails @ "connectedAt" array_getitem math.max
                         systime_precise swap - (Time since last ping or initial connection)
                         pingFrequency - 0 > if
-                            1 sessionDetails @ "descr" array_getitem ?dup if toPing @ array_appenditem toPing ! then
+                            1 connectionDetails @ "descr" array_getitem ?dup if toPing @ array_appenditem toPing ! then
                         else 0 then
                         if (update lastPingOut record)
-                            systime_precise sessionDetails @ "lastPingOut" array_setitem
-                            dup sessionDetails ! connectionsBySession @ session @ array_setitem connectionsBySession !
+                            systime_precise connectionDetails @ "lastPingOut" array_setitem
+                            dup connectionDetails ! connections @ connection @ array_setitem connections !
                         then
                     then
                 repeat
                 (TBC - Need something to drop pending connections that have taken too long)
                 _startLogDebug
-                    "Heartbeat. Connections: " connectionsBySession @ array_count intostr strcat
-                    ". Caches - ByChannel: " strcat sessionsByChannel @ array_count intostr strcat
-                    ", ByPlayer: " strcat sessionsByPlayer @ array_count intostr strcat
-                    ", SessionsByPlayerByChannel: " strcat playersSessionsByChannel @ array_count intostr strcat
-                    ", SessionsByAccountByChannel: " strcat accountsSessionsByChannel @ array_count intostr strcat
+                    "Heartbeat. Connections: " connections @ array_count intostr strcat
+                    ". Caches - ByChannel: " strcat cacheByChannel @ array_count intostr strcat
+                    ", ByPlayer: " strcat cacheByPlayer @ array_count intostr strcat
+                    ", ByAccount: " strcat cacheByAccount @ array_count intostr strcat
                     ". Outgoing Pings: " strcat toPing @ array_count intostr strcat
                 _stopLogDebug
                 toPing @ ?dup if
@@ -1088,22 +1112,17 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
             "PROC.EXIT." instring when
                 eventName @ 10 strcut nip atoi
                 clientPIDs @ over array_getitem ?dup if (S: PID descr)
-                clientPIDs @ 3 pick array_delitem clientPIDs !
-                _startLogDebug
-                    "Server process notified of disconnect on PID " 3 pick intostr strcat ", now monitoring " strcat clientPIDs @ array_count intostr strcat " PID(s)." strcat
-                _stopLogDebug
-                nip (S: descr) (Find sessions still associated with this descr )
-                connectionsBySession @ foreach (Descr Session Details)
-                    "descr" array_getitem 3 pick = if
-                        deleteSession
-                    else pop then
-                repeat
-                pop
+                    clientPIDs @ 3 pick array_delitem clientPIDs !
+                    _startLogDebug
+                        "Server process notified of disconnect on PID " 3 pick intostr strcat ", now monitoring " strcat clientPIDs @ array_count intostr strcat " PID(s)." strcat
+                    _stopLogDebug
+                    nip (S: descr)
+                    connections @ over array_getitem if deleteConnection else pop then
                 else
-                _startLogWarning
-                    "Server process notified of disconnect on an unmonitored PID - " over intostr strcat
-                _stopLogWarning
-                pop
+                    _startLogWarning
+                        "Server process notified of disconnect on an unmonitored PID - " over intostr strcat
+                    _stopLogWarning
+                    pop
                 then
             end
             default
@@ -1133,7 +1152,7 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
         "[!] Reset triggered: " me @ unparseobj strcat logNotice
         (Need to kill old PIDs)
         prog getPids foreach nip pid over = if pop else kill pop then repeat
-        0 serverProcess ! 0 connectionsBySession ! ensureInit
+        0 serverProcess ! 0 connections ! ensureInit
         "Server reset.." .tell
         exit
     then
@@ -1174,6 +1193,7 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
 c
 q
 
-!!@qmuf .debug-off "$www/mwi/websocket" match "getsessions" call $include $lib/kta/proto arrayDump
-!!@qmuf .debug-off "$www/mwi/websocket" match "getcaches" call $include $lib/kta/proto "AccountsSessionsByChannel" .tell arrayDump "PlayersSessionsByChannel" .tell arrayDump "SessionsByPlayer" .tell arrayDump "SessionsByChannel" .tell arrayDump
+!!@qmuf .debug-off "$www/mwi/websocket" match "getConnections" call $include $lib/kta/proto arrayDump
+!!@qmuf .debug-off "$www/mwi/websocket" match "getCaches" call $include $lib/kta/proto "ByChannel" .tell rot arrayDump "ByPlayer" .tell swap arrayDump "ByAccount" .tell arrayDump
+!!@qmuf $include $www/mwi/websocket "test" "test" "test" sendToChannel
 !!@qmuf 3989 0 "$www/mwi/websocket" match "websocketIssueAuthenticationToken" call
