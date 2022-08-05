@@ -102,6 +102,9 @@ $ifdef is_dev
    $def allowCrossDomain 1
 $endif
 
+(If defined, the program will measure bandwidth, adding a small amoun of overhead to every input or output)
+$def trackBandwidth
+
 (Log levels:
    Error   - Always output
    Notice  - Always output, core things
@@ -285,7 +288,7 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
 : dispatchStringToDescrs[ arr:descrs str:string -- ]
     string @ ensureValidUTF8 string !
     $ifdef trackbandwidth
-        descrs @ array_count string @ strlen array_count 2 + * "websocket_out" trackBandwidthCounts
+        descrs @ array_count string @ strlen 2 + * "websocket_out" trackBandwidthCounts
     $endif
     descrs @ string @ webSocketSendTextFrameToDescrs
 ;
@@ -491,6 +494,10 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
             pop
             "Descr " who @ intostr strcat " joined channel '" strcat channel @ strcat "' but was already in channel cache." strcat logerror
         then
+        _startLogDebug
+            "Cache - CacheByChannel is now: " cacheByChannel @ anythingToString strcat
+        _stopLogDebug
+        
     else pop then
     
     (Send announcements as required)
@@ -543,18 +550,29 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
         cacheByChannel @ channel @ array_getitem
         ?dup not if
             _startLogInfo
-                "Channel now inactive (last connection left): " channel @ strcat
+                "Channel was already inactive/empty whilst removing a connection: " channel @ strcat
             _stopLogInfo
             { }list
         then        
         dup who @ array_findval ?dup if
             foreach nip array_delitem repeat
-            cacheByChannel @ channel @ array_setitem cacheByChannel !
+            ?dup if 
+                cacheByChannel @ channel @ array_setitem cacheByChannel !
+            else
+                cacheByChannel @ channel @ array_delitem cacheByChannel !
+                _startLogInfo
+                    "Channel shutting down (no more connections): " channel @ strcat
+                _stopLogInfo
+            then
             1 announceDescr !
         else
             pop
             "Descr " who @ intostr strcat " left channel '" strcat channel @ strcat "' but was't in the channel cache to remove." strcat logerror
         then
+        _startLogDebug
+            "Cache - CacheByChannel is now: " cacheByChannel @ anythingToString strcat
+        _stopLogDebug
+        
         
         (Check if we need to do announcements about player / account leaving channel if there's no remaining connections)
         player @ ok? if
@@ -623,8 +641,11 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
                             player @ 0 rot "wwwDisconnect" 4 try enqueue pop catch "Failed to enqueue _disconnect event '" propQueueEntry @ strcat "'." strcat logError endcatch
                         else pop (-prog) then
                     repeat
-
                 then
+                _startLogDebug
+                    "Cache - CacheByPlayer is now: " cacheByPlayer @ anythingToString strcat
+                _stopLogDebug
+
             then
         then
         
@@ -641,6 +662,9 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
                     _stopLogDebug
                     cacheByAccount @ account @ array_delitem cacheByAccount !
                 then
+                _startLogDebug
+                    "Cache - CacheByAccount is now: " cacheByAccount @ anythingToString strcat
+                _stopLogDebug
             then
         then
         
@@ -699,6 +723,9 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
                 who @ swap array_appenditem
                 cacheByAccount @ account @ array_setitem cacheByAccount !
             then
+            _startLogDebug
+                "Cache - CacheByAccount is now: " cacheByAccount @ anythingToString strcat
+            _stopLogDebug
         then
         
         (Player)
@@ -736,6 +763,10 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
                 who @ swap array_appenditem
                 cacheByPlayer @ player @ int array_setitem cacheByPlayer !
             then
+            _startLogDebug
+                "Cache - CacheByPlayer is now: " cacheByPlayer @ anythingToString strcat
+            _stopLogDebug
+            
         then
 
         connectionDetails @ connections @ who @ array_setitem connections !
@@ -1087,10 +1118,7 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
                 (TBC - Need something to drop pending connections that have taken too long)
                 _startLogDebug
                     "Heartbeat. Connections: " connections @ array_count intostr strcat
-                    ". Caches - ByChannel: " strcat cacheByChannel @ array_count intostr strcat
-                    ", ByPlayer: " strcat cacheByPlayer @ array_count intostr strcat
-                    ", ByAccount: " strcat cacheByAccount @ array_count intostr strcat
-                    ". Outgoing Pings: " strcat toPing @ array_count intostr strcat
+                    ", Outgoing Pings: " strcat toPing @ array_count intostr strcat
                 _stopLogDebug
                 toPing @ ?dup if
                     systime_precise intostr 
@@ -1133,6 +1161,51 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
     repeat
 ;
 
+(Provides a list of channels and some details about them. Also doubles as general status screen.)
+: cmdChannels
+   prog "@lastuptime" getpropval
+   "^CYAN^Last started (uptime): ^YELLOW^" "%a, %d %b %Y %H:%M:%S" 3 pick timefmt strcat " (" strcat over systime swap - timeSpanAsString strip strcat ")" strcat .tell
+   pop
+   $ifdef trackbandwidth
+      "^CYAN^Websocket  ^WHITE^Out:^YELLOW^"
+      0.0 bandwidthCounts @ "websocket_out" array_getitem ?dup if foreach nip + repeat 1024.0 / 1 round then comma dup "." instring not if "  " strcat then "K" strcat 14 right strcat
+      " ^WHITE^In:^YELLOW^" strcat
+      0.0 bandwidthCounts @ "websocket_in" array_getitem ?dup if foreach nip + repeat 1024.0 / 1 round then comma dup "." instring not if "  " strcat then "K" strcat 14 right strcat
+      .tell
+   $endif
+   " " .tell
+   "^CYAN^LiveConnect Channel Breakdown" .tell
+   "^WHITE^Channel                  All Ply Acc"
+   $ifdef trackbandwidth
+   "         In(Kb)        Out(Kb)" strcat
+   $endif
+   .tell
+   { }list (Going to build a list based upon config and active channels)
+   cacheByChannel @ foreach pop swap array_appenditem repeat
+   prog "@channels/" array_get_propdirs foreach nip swap array_appenditem repeat
+   1 array_nunion
+   var channel
+   foreach nip channel !
+      channel @ 24 left
+      " " strcat
+      connections @ channel @ array_getitem dup if array_count then intostr 3 right strcat
+      " " strcat
+      cacheByChannel @ channel @ array_getitem dup if array_count then intostr 3 right strcat
+      " " strcat
+      cacheByAccount @ channel @ array_getitem dup if array_count then intostr 3 right strcat
+      $ifdef trackbandwidth
+         "^YELLOW^ " strcat
+         0.0 bandwidthCounts @ "channel_" channel @ strcat "_in" strcat array_getitem ?dup if foreach nip + repeat 1024.0 / 1 round then
+         comma dup "." instring not if "  " strcat then "K" strcat 14 right strcat
+         " " strcat
+         0.0 bandwidthCounts @ "channel_" channel @ strcat "_out" strcat array_getitem ?dup if foreach nip + repeat 1024.0 / 1 round then
+         comma dup "." instring not if "  " strcat then "K" strcat 14 right strcat
+      $endif
+      .tell
+   repeat
+   "All - All connections, Ply - Players, Acc - Accounts" .tell
+;
+
 : main
     ensureInit
     command @ "Queued event." stringcmp not if (Queued startup)
@@ -1163,6 +1236,8 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
         0 serverProcess !
         exit
     then
+
+    dup "#channel" instring 1 = over "#status" instring 1 = OR if pop cmdChannels exit then
 
     dup "#debug" instring 1 = if
 		6 strcut nip strip
