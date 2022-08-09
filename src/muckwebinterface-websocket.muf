@@ -615,7 +615,6 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
             "Deleting descr " who @ intostr strcat ": " strcat connectionDetails @ anythingToString strcat 
         _stopLogDebug
         
-        (TODO: NOT WORKING)
         (Remove from channels)
         connectionDetails @ "channels" array_getitem ?dup if
             foreach nip who @ swap removeConnectionFromChannel repeat
@@ -826,8 +825,8 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
     else "" then var! data
     message @ case
         "joinChannels" stringcmp not when
-            who @ data @ dup string? if 
-                addConnectionToChannel 
+            data @ dup string? if 
+                who @ swap addConnectionToChannel 
             else
                 foreach nip who @ swap addConnectionToChannel repeat
             then
@@ -1206,6 +1205,54 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
    "All - All connections, Ply - Players, Acc - Accounts" .tell
 ;
 
+(Debug-dumps of either a single descr or every descr a player owns.)
+: cmdDump[ str:target -- ]
+   target @ ?dup if
+      dup pmatch dup ok? if
+         "Dumping all descrs owned by " over .color-unparseobj strcat .tell
+         connections @ swap int array_getitem ?dup if
+            foreach
+               "--Descr " rot 1 + intostr strcat ": ^WHITE^" strcat over strcat .tell
+               connections @ swap array_getitem ?dup if arrayDump else "Couldn't find this connection - hopefully it just disconnected else something is very wrong." .tell then
+            repeat
+            "--Finished." .tell
+         else
+            "Couldn't find any descrs to show." .tell
+         then
+      else pop
+         connections @ swap atoi array_getitem ?dup if
+            "Dumping single connection details.." .tell
+            arrayDump
+         else
+            "That doesn't seem to be a valid descr presently connected." .tell
+         then
+      then
+   else
+      "No target specified. Provide either a descr or a player." .tell
+   then
+;
+
+(Provides a list of connections and some details about them)
+: cmdConnections ( -- )
+    "^CYAN^Websocket Connections" .tell
+    "^WHITE^Descr  Player             Time PID         Ping Chn Page" .tell
+    connections @ ?dup if
+        foreach (S: session info)
+            over intostr 6 right " " strcat
+            over "player" array_getitem dup ok? if name "^GREEN^" swap else pop "<Unset>" "^BROWN^" swap then 16 left strcat strcat " ^CYAN^" strcat
+            over "connectedAt" array_getitem dup int? not if pop systime then systime swap - timeSpanAsString strcat " ^WHITE^" strcat
+            over "pid" array_getitem intostr 8 left strcat " " strcat
+            over "ping" array_getitem ?dup if 1000.0 * int intostr "ms" strcat else "-" then 7 right strcat " " strcat
+            over "channels" array_getitem array_count intostr 3 right strcat " " strcat
+            over "page" array_getitem ?dup not if "Unknown" then strcat
+            .tell pop pop
+        repeat
+        "Chn = Amount of channels subscribed to." .tell
+    else
+        "^BLUE^No connections at present." .tell
+    then
+;
+
 : main
     ensureInit
     command @ "Queued event." stringcmp not if (Queued startup)
@@ -1220,6 +1267,10 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
     command @ "(WWW)" stringcmp not if pop handleClientConnecting exit then
 
     me @ mlevel 5 > not if "Wiz-only command." .tell exit then
+
+    dup "#channel" instring 1 = over "#status" instring 1 = OR if pop cmdChannels exit then
+    dup "#dump" instring 1 = if 5 strcut nip strip cmdDump exit then
+    dup "#who" instring 1 = if 4 strcut nip strip cmdConnections exit then
 
     dup "#reset" stringcmp not if
         "[!] Reset triggered: " me @ unparseobj strcat logNotice
@@ -1236,9 +1287,7 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
         0 serverProcess !
         exit
     then
-
-    dup "#channel" instring 1 = over "#status" instring 1 = OR if pop cmdChannels exit then
-
+   
     dup "#debug" instring 1 = if
 		6 strcut nip strip
 		dup "" stringcmp not if
@@ -1255,14 +1304,29 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
 			debugLevel ! prog "debugLevel" debugLevel @ setprop
 		else
 			pop pop
-			"Didn't recognize that debug level!" .tell
+			"Didn't recognize that debug level! Valid levels are: off, warning, info, all" .tell
 		then
 		exit
 	then
-	
-	"Work in progress" .tell
 
+    dup "#help" instring 1 = over "" stringcmp not OR if pop
+        "^WHITE^MuckWebInterface Websockets v" version strcat .tell
+        "Detailed information on the program is contained with the comments." .tell
+        "Commands available:" .tell
+        "  #who           -- List of present connections." .tell
+        "  #channels      -- List of present channels and general status." .tell
+        "  #config        -- Present channel configuration." .tell
+        "  #debug <level> -- Sets the debug to the given level." .tell
+        "  #dump <target> -- If given a descr prints its details, if given a player name dumps all descrs owned by them." .tell
+        "  #reset         -- Reset the system (will disconnect everyone.)" .tell
+        " " .tell
+        "The following two commands will register or unregister a program to receive events on the given channel:" .tell
+        "  #addchannel <channel>=<program>" .tell
+        "  #rmmchannel <channel>=<program>" .tell
+        exit
+    then
 
+    "Didn't recognize that option, use #help to get a list of available commands." .tell
 ;
 .
 c
