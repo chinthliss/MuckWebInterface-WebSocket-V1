@@ -212,14 +212,6 @@ export default class Core {
         if (this.descr === newDescr) return;
         this.logDebug(newDescr ? "Descr changed to " + newDescr : "Descr cleared.");
         this.descr = newDescr;
-        // Maybe need to send channel join requests?
-        let channelsToJoin = [];
-        for (let channel in this.channels) {
-            if (this.channels.hasOwnProperty(channel) && !this.channels[channel].joined) {
-                channelsToJoin.push(channel);
-            }
-        }
-        if (channelsToJoin.length > 0) this.sendSystemMessage('joinChannels', channelsToJoin);
     }
 
     /**
@@ -249,6 +241,19 @@ export default class Core {
         if (this.connectionStatus === newStatus) return;
         this.logDebug('Connection status changed to ' + newStatus + ' (from ' + this.connectionStatus + ')');
         this.connectionStatus = newStatus;
+
+        // Maybe need to send channel join requests?
+        if (newStatus === Core.connectionStates.connected) {
+            let channelsToJoin = [];
+            for (let channel in this.channels) {
+                if (this.channels.hasOwnProperty(channel) && !this.channels[channel].joined) {
+                    channelsToJoin.push(channel);
+                }
+            }
+            if (channelsToJoin.length > 0) this.sendSystemMessage('joinChannels', channelsToJoin);
+        }
+
+        //Callbacks
         for (let i = 0, maxi = this.statusChangedHandlers.length; i < maxi; i++) {
             try {
                 this.statusChangedHandlers[i](newStatus);
