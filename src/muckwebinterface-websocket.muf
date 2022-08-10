@@ -57,9 +57,7 @@ Properties on program:
     @channels/<channel>/<programDbref>:<program creation date> - Programs to receive messages for a channel.
     disabled:If Y the system will prevent any connections
 )
-
-(TBC: Ensure no references to firstconnect, lastconnection, connectiontype, upgrading or httpstream remain)
-
+( TODO: Documentation in some form )
 $version 0.0
  
 $include $lib/kta/strings
@@ -93,9 +91,9 @@ $libdef sendToAccount
 
 $def allowCrossDomain 1        (Whether to allow cross-domain connections. This should only really be on during testing/development.)
 $def heartbeatTime 2           (How frequently the heartbeat event triggers)
-$def pingFrequency 4           (How often websocket connections are pinged)
-$def maxPing 12                (If a ping request isn't responded to in this amount of seconds the connection will be flagged as disconnected)
- 
+$def pingFrequency 5           (How often websocket connections are pinged)
+$def maxPingTime 12            (If a ping request isn't responded to in this amount of seconds the connection will be flagged as disconnected)
+$def maxAuthTime 30            (How long a request has to authenticate before being dropped)
 $def protocolVersion "1" (Only clients that meet such are allowed to connect)
  
 $ifdef is_dev
@@ -248,16 +246,31 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
  
   (Returns a list of players on the given channel.)
 : playersOnChannel[ str:channel -- list:players ]
-   { }list
-   cacheByChannel @ channel @ array_getitem ?dup if
-      foreach pop connections @ array_getitem
-        "player" array_getitem dup player? if swap array_appenditem else pop then
-      repeat
-      1 array_union
-   then
+    { }list
+    cacheByChannel @ channel @ array_getitem ?dup if
+        foreach nip
+            connections @ swap array_getitem ?dup if
+                "player" array_getitem dup player? if swap array_appenditem else pop then
+            then
+        repeat
+        1 array_nunion
+    then
 ; PUBLIC playersOnChannel 
+
+  (Returns a list of accounts on the given channel.)
+: accountsOnChannel[ str:channel -- list:accounts ]
+    { }list
+    cacheByChannel @ channel @ array_getitem ?dup if
+        foreach nip
+            connections @ swap array_getitem ?dup if
+                "account" array_getitem ?dup if swap array_appenditem then
+            then
+        repeat
+        1 array_nunion
+    then
+; PUBLIC accountsOnChannel 
  
-  (Returns a list of everyone connected)
+  (Returns a list of every player connected)
 : playersOnWeb[ -- list:players ]
     { }list
     cacheByPlayer @ foreach pop
@@ -287,6 +300,7 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
 
 : dispatchStringToDescrs[ arr:descrs str:string -- ]
     string @ ensureValidUTF8 string !
+    (string @ strlen 65000 > if "Outgoing string is over 65000 characters and too long for the muck." abort then)
     $ifdef trackbandwidth
         descrs @ array_count string @ strlen 2 + * "websocket_out" trackBandwidthCounts
     $endif
@@ -681,7 +695,8 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
     then
 ;
 
-: handleAuthentication[ descr:who str:token -- ]
+: handleAuthentication[ descr:who str:authString -- ]
+    authString @ " " split var! page var! token
     _startLogDebug
         "Received auth token '" token @ strcat "' for descr " strcat who @ intostr strcat
     _stopLogDebug                      
@@ -697,6 +712,9 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
         _startLogDebug
             "Accepted auth token '" token @ strcat "' for descr " strcat descr intostr strcat
         _stopLogDebug                      
+        
+        (Page)
+        page @ ?dup if connectionDetails @ "page" array_setitem connectionDetails ! then
         
         (Account)
         prog "@tokens/" token @ strcat "/account" strcat getprop var! account
@@ -768,6 +786,7 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
             
         then
 
+        (Store)
         connectionDetails @ connections @ who @ array_setitem connections !
         
         _startLogDebug
@@ -1092,11 +1111,20 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
                         _stopLogDebug
                         connection @ deleteConnection continue
                     then
-                    connectionDetails @ "acceptedAt" array_getitem not if continue then (Not finished handshake, so we don't ping)
+                    connectionDetails @ "acceptedAt" array_getitem not if 
+                        (Not finished handshake, so we don't continue to ping but do instead check they're not a stalled connection)
+                        connectionDetails @ "connectedAt" array_getitem systime swap - maxAuthTime > if
+                            _startLogDebug
+                                "Disconnecting " connectionDetails @ connectionDetailsToString strcat " due to them taking too long to authenticate." strcat
+                            _stopLogDebug
+                            connection @ deleteConnection continue
+                        then
+                        continue 
+                    then 
                     (Ping related)
                     connectionDetails @ "lastPingOut" array_getitem connectionDetails @ "lastPingIn" array_getitem
-                    over over > if (If lastPingOut is higher we're expecting a response. On initial connect or reconnect both are 0)
-                        pop systime_precise swap - maxPing > if
+                    over over > if (If lastPingOut is higher we're expecting a response. On initial connect both are 0)
+                        pop systime_precise swap - maxPingTime > if
                             _startLogDebug
                                 "Disconnecting " connectionDetails @ connectionDetailsToString strcat " due to no response to ping." strcat
                             _stopLogDebug
@@ -1114,7 +1142,6 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
                         then
                     then
                 repeat
-                (TBC - Need something to drop pending connections that have taken too long)
                 _startLogDebug
                     "Heartbeat. Connections: " connections @ array_count intostr strcat
                     ", Outgoing Pings: " strcat toPing @ array_count intostr strcat
@@ -1162,47 +1189,57 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
 
 (Provides a list of channels and some details about them. Also doubles as general status screen.)
 : cmdChannels
-   prog "@lastuptime" getpropval
-   "^CYAN^Last started (uptime): ^YELLOW^" "%a, %d %b %Y %H:%M:%S" 3 pick timefmt strcat " (" strcat over systime swap - timeSpanAsString strip strcat ")" strcat .tell
-   pop
-   $ifdef trackbandwidth
-      "^CYAN^Websocket  ^WHITE^Out:^YELLOW^"
-      0.0 bandwidthCounts @ "websocket_out" array_getitem ?dup if foreach nip + repeat 1024.0 / 1 round then comma dup "." instring not if "  " strcat then "K" strcat 14 right strcat
-      " ^WHITE^In:^YELLOW^" strcat
-      0.0 bandwidthCounts @ "websocket_in" array_getitem ?dup if foreach nip + repeat 1024.0 / 1 round then comma dup "." instring not if "  " strcat then "K" strcat 14 right strcat
-      .tell
-   $endif
-   " " .tell
-   "^CYAN^LiveConnect Channel Breakdown" .tell
-   "^WHITE^Channel                  All Ply Acc"
-   $ifdef trackbandwidth
-   "         In(Kb)        Out(Kb)" strcat
-   $endif
-   .tell
-   { }list (Going to build a list based upon config and active channels)
-   cacheByChannel @ foreach pop swap array_appenditem repeat
-   prog "@channels/" array_get_propdirs foreach nip swap array_appenditem repeat
-   1 array_nunion
-   var channel
-   foreach nip channel !
-      channel @ 24 left
-      " " strcat
-      connections @ channel @ array_getitem dup if array_count then intostr 3 right strcat
-      " " strcat
-      cacheByChannel @ channel @ array_getitem dup if array_count then intostr 3 right strcat
-      " " strcat
-      cacheByAccount @ channel @ array_getitem dup if array_count then intostr 3 right strcat
-      $ifdef trackbandwidth
-         "^YELLOW^ " strcat
-         0.0 bandwidthCounts @ "channel_" channel @ strcat "_in" strcat array_getitem ?dup if foreach nip + repeat 1024.0 / 1 round then
-         comma dup "." instring not if "  " strcat then "K" strcat 14 right strcat
-         " " strcat
-         0.0 bandwidthCounts @ "channel_" channel @ strcat "_out" strcat array_getitem ?dup if foreach nip + repeat 1024.0 / 1 round then
-         comma dup "." instring not if "  " strcat then "K" strcat 14 right strcat
-      $endif
-      .tell
-   repeat
-   "All - All connections, Ply - Players, Acc - Accounts" .tell
+    " " .tell
+    "^CYAN^LiveConnect Channel Breakdown" .tell
+    "^WHITE^Channel                  All Ply Acc"
+    $ifdef trackbandwidth
+    "         In(Kb)        Out(Kb)" strcat
+    $endif
+    .tell
+    { }list (Going to build a list based upon config and active channels)
+    cacheByChannel @ foreach pop swap array_appenditem repeat
+    prog "@channels/" array_get_propdirs foreach nip swap array_appenditem repeat
+    1 array_nunion
+    var channel
+    foreach nip channel !
+        channel @ 24 left
+        " " strcat
+        cacheByChannel @ channel @ array_getitem dup if array_count then intostr 3 right strcat
+        " " strcat
+        channel @ playersOnChannel array_count intostr 3 right strcat
+        " " strcat
+        channel @ accountsOnChannel array_count intostr 3 right strcat
+        $ifdef trackbandwidth
+            "^YELLOW^ " strcat
+            0.0 bandwidthCounts @ "channel_" channel @ strcat "_in" strcat array_getitem ?dup if foreach nip + repeat 1024.0 / 1 round then
+            comma dup "." instring not if "  " strcat then "K" strcat 14 right strcat
+            " " strcat
+            0.0 bandwidthCounts @ "channel_" channel @ strcat "_out" strcat array_getitem ?dup if foreach nip + repeat 1024.0 / 1 round then
+            comma dup "." instring not if "  " strcat then "K" strcat 14 right strcat
+        $endif
+        .tell
+    repeat
+
+    (Total row)
+    "^CYAN^----------------------------------------------------------------------" .tell
+    "" 24 left "^CYAN^" swap strcat 
+    " " strcat
+    connections @ array_count intostr 3 right strcat
+    " " strcat
+    cacheByPlayer @ array_count intostr 3 right strcat
+    " " strcat
+    cacheByAccount @ array_count intostr 3 right strcat
+    $ifdef trackbandwidth
+        "^YELLOW^ " strcat
+        0.0 bandwidthCounts @ "websocket_out" array_getitem ?dup if foreach nip + repeat 1024.0 / 1 round then 
+            comma dup "." instring not if "  " strcat then "K" strcat 14 right strcat
+        " " strcat
+        0.0 bandwidthCounts @ "websocket_in" array_getitem ?dup if foreach nip + repeat 1024.0 / 1 round then 
+        comma dup "." instring not if "  " strcat then "K" strcat 14 right strcat
+    $endif
+    .tell
+    
+    "All - All connections, Ply - Players, Acc - Accounts" .tell
 ;
 
 (Debug-dumps of either a single descr or every descr a player owns.)
@@ -1235,6 +1272,10 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
 (Provides a list of connections and some details about them)
 : cmdConnections ( -- )
     "^CYAN^Websocket Connections" .tell
+
+    prog "@lastuptime" getpropval
+    "^CYAN^Last started (uptime): ^YELLOW^" "%a, %d %b %Y %H:%M:%S" 3 pick timefmt strcat " (" strcat swap systime swap - timeSpanAsString strip strcat ")" strcat .tell
+
     "^WHITE^Descr  Player             Time PID         Ping Chn Page" .tell
     connections @ ?dup if
         foreach (S: session info)
@@ -1336,3 +1377,4 @@ q
 !!@qmuf .debug-off "$www/mwi/websocket" match "getCaches" call $include $lib/kta/proto "ByChannel" .tell rot arrayDump "ByPlayer" .tell swap arrayDump "ByAccount" .tell arrayDump
 !!@qmuf $include $www/mwi/websocket "test" "test" "test" sendToChannel
 !!@qmuf 3989 0 "$www/mwi/websocket" match "websocketIssueAuthenticationToken" call
+!!@qmuf .debug-off $include $www/mwi/websocket "test" "1234567890" var! ten "" 1 6500 1 for pop ten @ strcat repeat "longstring" sendToChannel "Sent!" .tell (65000?)

@@ -126,7 +126,7 @@ export default class ConnectionWebSocket extends Connection {
 
             if (!this.receivedWelcome) {
                 if (message === 'welcome') {
-                    this.connection.send('auth ' + websocketToken);
+                    this.connection.send('auth ' + websocketToken + ' ' + location.href);
                     this.receivedWelcome = true;
                     this.core.logDebug("WebSocket received initial welcome message, attempting to authenticate.");
                 } else this.core.logError("WebSocket got an unexpected message whilst expecting welcome: " + message);
