@@ -10,14 +10,14 @@ export default class Core {
      * @type {RegExp}
      * @readonly
      */
-    static msgRegExp = /MSG(\w*),(\w*),(.*)/;
+    static msgRegExp = /MSG(\w*),(.*?),(.*)/;
 
     /**
      * System message in the form SYS<Message>,<Data>
      * @type {RegExp}
      * @readonly
      */
-    static sysRegExp = /SYS(\w*),(.*)/;
+    static sysRegExp = /SYS(\w*),(.*?),(.*)/;
 
     /**
      * @enum {string}

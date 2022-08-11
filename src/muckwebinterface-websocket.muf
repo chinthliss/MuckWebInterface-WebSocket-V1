@@ -359,11 +359,10 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
     descrs @ channel @ message @ data @ sendChannelMessageToDescrs
 ; PUBLIC sendToDescrs 
 
-: sendToDescr[ str:who str:channel str:message any:data -- ]
-    who @ int? channel @ string? message @ string? AND AND not if "Invalid arguments" abort then
-    who @ not if "Who can't be blank" abort then
-    message @ "" stringcmp not if "Message can't be blank" abort then
-    channel @ "" stringcmp not if "Channel can't be blank" abort then
+: sendToDescr[ int:who str:channel str:message any:data -- ]
+    who @ dup int? AND not if "'Who' must be a non-zero descr." abort then
+    channel @ dup string? AND not if "'Channel' must be a non-blank string." abort then
+    message @ dup string? AND not if "'Message' must be a non-blank string." abort then
     { who @ }list channel @ message @ data @ sendChannelMessageToDescrs
 ; PUBLIC sendToDescr 
 
@@ -436,7 +435,7 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
                 "ERROR whilst handling " channel @ strcat "." strcat message @ strcat ": " strcat error @ unparseCatchDetailedError strcat
                 _stopLogWarning
                 programToCall @ owner dup ok? if
-                    "[LiveConnect] The program " programToCall @ unparseobj strcat " crashed whilst handling '" strcat message @ strcat "'. Error: " strcat error @ unparseCatchDetailedError strcat notify
+                    "[MWI/Websocket] The program " programToCall @ unparseobj strcat " crashed whilst handling '" strcat message @ strcat "'. Error: " strcat error @ unparseCatchDetailedError strcat notify
                 else pop then
             endcatch
             (Check for misbehaving functions)
@@ -448,7 +447,7 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
                 _stopLogWarning
                 debug_line_str
                 programToCall @ owner dup ok? if
-                    dup "[LiveConnect] The program " programToCall @ unparseobj strcat " left items on the stack after handling '" strcat message @ strcat "'. Debug line follows: " strcat notify
+                    dup "[MWI/Websocket] The program " programToCall @ unparseobj strcat " left items on the stack after handling '" strcat message @ strcat "'. Debug line follows: " strcat notify
                     swap notify
                 else pop pop then
                 depth startDepth @ - popn
@@ -1190,7 +1189,7 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
 (Provides a list of channels and some details about them. Also doubles as general status screen.)
 : cmdChannels
     " " .tell
-    "^CYAN^LiveConnect Channel Breakdown" .tell
+    "^CYAN^Websocket Channel Breakdown" .tell
     "^WHITE^Channel                  All Ply Acc"
     $ifdef trackbandwidth
     "         In(Kb)        Out(Kb)" strcat
@@ -1294,6 +1293,20 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
     then
 ;
 
+: cmdConfig
+   var channel
+   "^CYAN^Websocket Channel Configurations" .tell
+   prog "@channels/" array_get_propdirs foreach nip channel !
+      "Channel: " channel @ strcat .tell
+      prog "/@channels/" channel @ strcat "/" strcat array_get_propvals ?dup if
+         foreach pop
+            dup atoi dbref
+            dup ok? if nip .color-unparseobj else pop "Invalid reference: " swap strcat then "  " swap strcat .tell
+         repeat
+      else "^BLUE^None!" .tell then
+   repeat
+;
+
 : main
     ensureInit
     command @ "Queued event." stringcmp not if (Queued startup)
@@ -1312,7 +1325,8 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
     dup "#channel" instring 1 = over "#status" instring 1 = OR if pop cmdChannels exit then
     dup "#dump" instring 1 = if 5 strcut nip strip cmdDump exit then
     dup "#who" instring 1 = if 4 strcut nip strip cmdConnections exit then
-
+    dup "#config" instring 1 = if pop cmdConfig exit then
+    
     dup "#reset" stringcmp not if
         "[!] Reset triggered: " me @ unparseobj strcat logNotice
         (Need to kill old PIDs)
@@ -1349,6 +1363,34 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
 		then
 		exit
 	then
+
+   dup "#addChannel" instring 1 = if
+      11 strcut nip strip
+      "=" explode_array
+      dup array_count 2 = not if "Invalid arguments, use in the form '" command @ strcat " #addChannel <channel>=<program>'" strcat .tell exit then
+      dup 0 array_getitem swap 1 array_getitem (Channel Program)
+      over "" stringcmp not if "No channel specified! This can't be an empty string." .tell exit then
+      dup match dup ok? not if pop "Couldn't match: " swap strcat .tell exit else nip then
+      dup program? not if .color-unparseobj " isn't a program!" strcat .tell exit then
+      prog "/@channels/" 4 pick strcat "/" strcat 3 pick intostr strcat 3 pick timeStamps 3 popn setprop
+      "Added the program '" swap .color-unparseobj strcat "' to receive messages on channel '" strcat swap strcat "'." strcat .tell
+      exit
+   then
+
+   dup "#rmmChannel" instring 1 = if
+      11 strcut nip strip
+      "=" explode_array
+      dup array_count 2 = not if "Invalid arguments, use in the form '" command @ strcat " #rmmChannel <channel>=<program>'" strcat .tell exit then
+      dup 0 array_getitem swap 1 array_getitem (Channel Program)
+      over "" stringcmp not if "No channel specified! This can't be an empty string." .tell exit then
+      match (Because we may be asked to remove garbage/invalid references)
+      prog "/@channels/" 4 pick strcat "/" strcat 3 pick intostr strcat
+      over over getprop not if "There was no entry to remove." .tell exit then
+      remove_prop
+      "Removed the program '" swap .color-unparseobj strcat "' from the channel '" strcat swap strcat "'." strcat .tell
+      exit
+   then
+
 
     dup "#help" instring 1 = over "" stringcmp not OR if pop
         "^WHITE^MuckWebInterface Websockets v" version strcat .tell
