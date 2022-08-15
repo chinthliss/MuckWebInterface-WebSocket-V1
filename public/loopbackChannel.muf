@@ -9,6 +9,7 @@ websocket #addChannel loopback=$www/mwi/websocket/loopback
 i
 
 $include $www/mwi/websocket
+$include $lib/account
 
 (
     Simple program that does little more than loopback things. It will: 
@@ -27,6 +28,13 @@ $include $www/mwi/websocket
     "loopback" "-player" player @ name sendToChannel
 ; PUBLIC onPlayerExitedChannel
 
+: onAccountEnteredChannel[ str:channel str:message int:who dbref:player any:data -- ]
+    "loopback" "+account" player @ acct_any2aid sendToChannel
+; PUBLIC onAccountEnteredChannel
+
+: onAccountExitedChannel[ str:channel str:message int:who dbref:player any:data -- ]
+    "loopback" "-account" player @ acct_any2aid sendToChannel
+; PUBLIC onAccountExitedChannel
 
 .
 c

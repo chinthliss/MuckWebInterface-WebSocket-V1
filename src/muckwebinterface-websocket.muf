@@ -33,7 +33,7 @@ MSGChannel,Message,Data       Standard message sent over a channel. Data is JSON
 SYSMessage,Data               System messages without a channel.
 Ping / Pong                   Handled at the transport level
 
-Underlying transmission code attempts to minimize the amount encoding by not doing it for every recipient
+Underlying transmission code attempts to minimize the amount of encoding done by not doing it for every recipient
 Approximate transmission route:
 [Public send request functions through various SendToX methods]
 [Requests broken down into a list of descrs and the message, ending in sendMessageToDescrs]
@@ -55,9 +55,10 @@ The connection details stored in connections:
 Properties on program:
     debugLevel: Present debug level. Only read on load, as it's then cached due to constant use.
     @channels/<channel>/<programDbref>:<program creation date> - Programs to receive messages for a channel.
+    @player/<some sort of reference>:<program> - Programs to receive wsConnect/wsDisconnect events based on player connection/disconnects
     disabled:If Y the system will prevent any connections
 )
-( TODO: Documentation in some form )
+( TODO: Link to GitHub once public )
 $version 0.0
  
 $include $lib/kta/strings
@@ -646,11 +647,14 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
                     _stopLogDebug
                     cacheByPlayer @ player @ int array_delitem cacheByPlayer !
                     
+                    _startLogDebug
+                    "Doing @player disconnect notification for " player @ unparseobj strcat
+                    _stopLogDebug
                     var propQueueEntry
-                    prog "_disconnect" array_get_propvals foreach swap propQueueEntry ! (S: prog)
+                    prog "@player" array_get_propvals foreach swap propQueueEntry ! (S: prog)
                         dup string? if dup "$" instring if match else atoi then then dup dbref? not if dbref then
                         dup program? if
-                            player @ 0 rot "wwwDisconnect" 4 try enqueue pop catch "Failed to enqueue _disconnect event '" propQueueEntry @ strcat "'." strcat logError endcatch
+                            player @ 0 rot "wsDisconnect" 4 try enqueue pop catch "Failed to enqueue @player disconnect event '" propQueueEntry @ strcat "'." strcat logError endcatch
                         else pop (-prog) then
                     repeat
                 then
@@ -760,12 +764,12 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
                 _stopLogDebug
 
                 _startLogDebug
-                "Doing _connect notification for " player @ unparseobj strcat
+                "Doing @player connect notification for " player @ unparseobj strcat
                 _stopLogDebug
-                prog "_connect" array_get_propvals foreach swap var! propQueueEntry (S: prog)
+                prog "@player" array_get_propvals foreach swap var! propQueueEntry (S: prog)
                     dup string? if dup "$" instring if match else atoi then then dup dbref? not if dbref then
                     dup program? if
-                        player @ 0 rot "wwwConnect" 4 try enqueue pop catch "Failed to enqueue _connect event '" propQueueEntry @ strcat "'." strcat logError endcatch
+                        player @ 0 rot "wsConnect" 4 try enqueue pop catch "Failed to enqueue @player event '" propQueueEntry @ strcat "'." strcat logError endcatch
                     then
                 repeat
             then
