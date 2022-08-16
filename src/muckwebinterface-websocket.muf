@@ -13,25 +13,12 @@
 i
 
 ( 
-A program to provide websocket functionality between the muck and a webpage via a websocket.
-It provides functionality to support the webpage, it is NOT the program that handles the direct webclient.
-
-This version works on top of the MuckWebInterface and is greatly simplified from the previous version since it doesn't require a HTTP stream.
- 
-The initial connection requires a 'token' that is retrieved from the main webpage, ensuring it handles authentication.
-
-Present support - Websockets should now be universal and all the browsers that don't support them have been retired.
+MuckWeb Interface (MWI) - Websockets
+https://github.com/chinthliss/MuckWebInterface-WebSocket
+This is the program to host the websocket used by the MWI webpage framework. It is NOT the websocket used by the direct connect client.
+The github project contains the full documentation. This program only contains relavant notes from the muck side.
 
 Assumes the muck takes time to re-use descrs, in particular that their is sufficient time to see a descr is disconnected before it is re-used.
-
-Message are sent over channels, programs register to 'watch' a channel.
-On each message the program looks for functions on registered programs in the form 'on<messsage>' and passes them the message.
-These functions are called with the arguments 'channel, message, descr, player, data'; Player may be #-1.
-
-Communication is sent in the form of a three letter code prefixing the line. Message formats used:
-MSGChannel,Message,Data       Standard message sent over a channel. Data is JSON encoded
-SYSMessage,Data               System messages without a channel.
-Ping / Pong                   Handled at the transport level
 
 Underlying transmission code attempts to minimize the amount of encoding done by not doing it for every recipient
 Approximate transmission route:
@@ -58,8 +45,7 @@ Properties on program:
     @player/<some sort of reference>:<program> - Programs to receive wsConnect/wsDisconnect events based on player connection/disconnects
     disabled:If Y the system will prevent any connections
 )
-( TODO: Link to GitHub once public )
-$version 0.0
+$version 1.0
  
 $include $lib/kta/strings
 $include $lib/kta/misc
