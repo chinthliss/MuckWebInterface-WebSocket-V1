@@ -4,7 +4,6 @@ import ConnectionFaker from "./connection-faker.js";
 
 export default class Core {
 
-
     /**
      * Message in the form MSG<Channel>,<Message>,<Data>
      * @type {RegExp}
@@ -46,11 +45,6 @@ export default class Core {
      * @type {(connectionStates)}
      */
     connectionStatus = Core.connectionStates.disconnected;
-
-    /**
-     * @type {number}
-     */
-    descr = 0;
 
     /**
      * @type {number}
@@ -202,18 +196,6 @@ export default class Core {
         this.statusChangedHandlers.push(callback);
     }
 
-    //endregion Event Handlers
-
-    /**
-     * Called by present connection
-     * @param {number} newDescr The New Descr
-     */
-    updateAndDispatchDescr(newDescr) {
-        if (this.descr === newDescr) return;
-        this.logDebug(newDescr ? "Descr changed to " + newDescr : "Descr cleared.");
-        this.descr = newDescr;
-    }
-
     /**
      * Called by present connection
      * @param {number} newDbref New Dbref for player
@@ -231,7 +213,6 @@ export default class Core {
             }
         }
     }
-
 
     /**
      * Called by present connection
@@ -274,6 +255,8 @@ export default class Core {
             }
         }
     }
+
+    //endregion Event Processing
 
     /**
      * Handles any incoming string, whether it's a regular message or system message
@@ -462,7 +445,6 @@ export default class Core {
         this.logDebug("Starting connection.");
         this.connectionRetry = -1;
         this.updateAndDispatchStatus(Core.connectionStates.connecting);
-        this.updateAndDispatchDescr(0);
         this.updateAndDispatchPlayer(-1, '');
         for (let channel in this.channels) {
             if (this.channels.hasOwnProperty(channel)) {

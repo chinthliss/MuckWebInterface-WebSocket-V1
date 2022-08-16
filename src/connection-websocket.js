@@ -140,8 +140,8 @@ export default class ConnectionWebSocket extends Connection {
                     this.clearConnectionTimeoutIfSet();
                     this.handshakeCompleted = true;
                     this.connection.onmessage = this.handleWebSocketMessage;
-                    this.core.updateAndDispatchDescr(descr);
                     this.core.updateAndDispatchStatus(Core.connectionStates.connected);
+                    this.core.logDebug("Server acknowledged us connected as descr " + descr);
                     //Resend anything that was buffered
                     for (let i = 0; i++; i < this.connectingOutgoingMessageBuffer.length) {
                         this.sendString(this.connectingOutgoingMessageBuffer[i]);
