@@ -136,15 +136,18 @@ export default class ConnectionWebSocket extends Connection {
             if (!this.handshakeCompleted) {
                 if (message.startsWith('accepted ')) {
                     this.core.logDebug("WebSocket received descr.");
-                    let [descr, playerDbref, playerName] = message.slice(9);
+                    let [descr, playerDbref, playerName] = message.slice(9).split(',');
                     playerDbref = parseInt(playerDbref);
+
+                    this.core.logDebug("Server acknowledged us connected as descr: "
+                        + descr + ", playerDbref: " + playerDbref + ", playerName: " + playerName);
+
                     this.clearConnectionTimeoutIfSet();
                     this.handshakeCompleted = true;
+                    // Switch the message handler to the proper one
                     this.connection.onmessage = this.handleWebSocketMessage;
                     this.core.updateAndDispatchStatus(Core.connectionStates.connected);
                     this.core.updateAndDispatchPlayer(playerDbref, playerName);
-                    this.core.logDebug("Server acknowledged us connected as descr: "
-                        + descr + ", player: " + playerdbref + ", playerName: " + playerName);
                     //Resend anything that was buffered
                     for (let i = 0; i++; i < this.connectingOutgoingMessageBuffer.length) {
                         this.sendString(this.connectingOutgoingMessageBuffer[i]);
