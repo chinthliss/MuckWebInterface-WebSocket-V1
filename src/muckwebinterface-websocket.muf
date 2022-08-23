@@ -783,7 +783,7 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
         _stopLogDebug
 
         (Notify connection)
-        { who @ }list "accepted " who @ intostr strcat
+        { who @ }list "accepted " who @ intostr strcat "," strcat player @ intostr strcat "," strcat player @ ok? if player @ name strcat then
         $ifdef trackBandwidth
             dup strlen 2 + (For \r\n) "websocket_out" trackBandwidthCounts
         $endif
@@ -792,8 +792,8 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
         _stopLogDebug
         webSocketSendTextFrameToDescrs
     
-        (TODO: Re-enable token clearup)
-        (prog "@tokens/" token @ strcat "/" strcat removepropdir)
+        (Remove the used token)
+        prog "@tokens/" token @ strcat "/" strcat removepropdir
     else
         _startLogWarning
             "Websocket for descr " who @ intostr strcat " gave an auth token that wasn't valid: " strcat token @ strcat

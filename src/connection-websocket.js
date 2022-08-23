@@ -136,11 +136,12 @@ export default class ConnectionWebSocket extends Connection {
             if (!this.handshakeCompleted) {
                 if (message.startsWith('accepted ')) {
                     this.core.logDebug("WebSocket received descr.");
-                    let descr = message.slice(9);
+                    const [descr, playerDbref, playerName] = message.slice(9);
                     this.clearConnectionTimeoutIfSet();
                     this.handshakeCompleted = true;
                     this.connection.onmessage = this.handleWebSocketMessage;
                     this.core.updateAndDispatchStatus(Core.connectionStates.connected);
+                    this.core.updateAndDispatchPlayer(playerDbref, playerName);
                     this.core.logDebug("Server acknowledged us connected as descr " + descr);
                     //Resend anything that was buffered
                     for (let i = 0; i++; i < this.connectingOutgoingMessageBuffer.length) {
