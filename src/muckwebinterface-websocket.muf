@@ -503,7 +503,7 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
     (Send announcements as required)
     (Do announcements to client first, since otherwise callbacks may cause messages to send out of order)
     announceDescr @ if
-        who @ channel @ "descrConnected" systime sendToDescr
+        who @ channel @ "connected" systime sendToDescr
     then
     announcePlayer @ if
         who @ channel @ "playerConnected" systime sendToDescr
@@ -513,7 +513,7 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
     then
     (And then process callbacks)
     announceDescr @ if
-        who @ player @ channel @ "descrEnteredChannel" who @ handleChannelCallbacks
+        who @ player @ channel @ "connectionEnteredChannel" who @ handleChannelCallbacks
     then
     announcePlayer @ if
         who @ player @ channel @ "playerEnteredChannel" player @ handleChannelCallbacks
@@ -593,7 +593,7 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
         who @ channel @ "accountDisconnected" systime sendToDescr
     then
     announceDescr @ if
-        who @ channel @ "descrDisconnected" systime sendToDescr
+        who @ channel @ "disconnected" systime sendToDescr
     then
     (And then process callbacks)
     announcePlayer @ if
@@ -603,7 +603,7 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
         who @ player @ channel @ "accountExitedChannel" account @ handleChannelCallbacks
     then
     announceDescr @ if
-        who @ player @ channel @ "descrExitedChannel" who @ handleChannelCallbacks
+        who @ player @ channel @ "connectionExitedChannel" who @ handleChannelCallbacks
     then
 ;
 
