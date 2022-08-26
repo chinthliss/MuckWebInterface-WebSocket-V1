@@ -1274,7 +1274,12 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
             over "pid" array_getitem intostr 8 left strcat " " strcat
             over "ping" array_getitem ?dup if 1000.0 * int intostr "ms" strcat else "-" then 7 right strcat " " strcat
             over "channels" array_getitem array_count intostr 3 right strcat " " strcat
-            over "page" array_getitem ?dup not if "Unknown" then strcat
+            (Use page to show if they're still connecting)
+            over "acceptedAt" array_getitem if
+                over "page" array_getitem ?dup not if "Unknown" then strcat
+            else
+                "^BROWN^[Connecting...]" strcat
+            then
             .tell pop pop
         repeat
         "Chn = Amount of channels subscribed to." .tell
@@ -1315,6 +1320,7 @@ svar debugLevel (Loaded from disk on initialization but otherwise in memory to s
     dup "#channel" instring 1 = over "#status" instring 1 = OR if pop cmdChannels exit then
     dup "#dump" instring 1 = if 5 strcut nip strip cmdDump exit then
     dup "#who" instring 1 = if 4 strcut nip strip cmdConnections exit then
+    dup "#sessions" instring 1 = if 9 strcut nip strip cmdConnections exit then
     dup "#config" instring 1 = if pop cmdConfig exit then
     
     dup "#reset" stringcmp not if
