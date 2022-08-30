@@ -10,14 +10,6 @@ Based upon previous works (LiveConnect). This variant works on top of the MuckWe
   * Javascript (client side) doesn't know what a dbref is and these will become integers by default.
   * The muck doesn't know what a boolean is and these will become integers.
 
-From the muck side, programs register to monitor a channel. 
-* On each message the program looks for functions on registered programs in the form 'on<messsage>' and passes them the message.
-* These functions are called with the arguments 'channel, message, descr, player, data'; Player may be #-1. 
-
-From the web side, a client registers to channels they intend to use on that particular page.
-* Handlers are registered via the .on() function for each message wanted. When a message is received, they'll be called directly with (data).
-* The present player can be obtained via the library.
-
 ### Important
 Web browsers expose everything and, with very little knowledge, it's possible to change running scripts on the fly. EVERYTHING from a client should be validated and any changes to important values should be done on the muck and notified to the client.
 
@@ -42,3 +34,7 @@ Communication is sent in the form of a short code prefixing the line. Message fo
 | SYSMessage,Data|System messages without a channel. |
 | Ping / Pong|Handled at the transport level |
 
+## Further Reading
+  
+Usage from website: [a relative link](usage_web.md)  
+Usage from muck: [a relative link](usage_muck.md)
