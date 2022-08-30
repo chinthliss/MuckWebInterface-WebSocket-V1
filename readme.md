@@ -36,5 +36,5 @@ Communication is sent in the form of a short code prefixing the line. Message fo
 
 ## Further Reading
   
-Usage from website: [a relative link](usage_web.md)  
-Usage from muck: [a relative link](usage_muck.md)
+[Usage from website](usage_web.md)  
+[Usage from the MUCK](usage_muck.md)
