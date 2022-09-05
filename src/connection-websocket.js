@@ -169,7 +169,7 @@ export default class ConnectionWebSocket extends Connection {
     connect() {
         if (this.connection && this.connection.readyState < 2) {
             console.log(this.connection);
-            this.core.logError("Attempt to connect whilst socket already connecting.");
+            this.core.logDebug("Attempt to connect whilst socket already connecting.");
             return;
         }
         //Step 1 - we need to get an authentication token from the webpage

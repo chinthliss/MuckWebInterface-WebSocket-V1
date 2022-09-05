@@ -387,8 +387,7 @@ export default class Core {
         } else {
             if (this.connectionRetry === -1) {
                 this.connectionRetry = setTimeout(this.startConnection.bind(this), 1000);
-                this.logDebug("Queueing retry");
-                this.connection.connect();
+                this.logDebug("Connection retry queued.");
             }
         }
     }
@@ -448,7 +447,7 @@ export default class Core {
         this.updateAndDispatchPlayer(-1, '');
         for (let channel in this.channels) {
             if (this.channels.hasOwnProperty(channel)) {
-                //Channels will be re-joined but we need to let them know to buffer until the muck acknowledges them.
+                //Channels will be re-joined if required, but we need to let them know to buffer until the muck acknowledges them.
                 this.channels[channel].joined = false;
             }
         }
