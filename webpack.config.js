@@ -21,6 +21,9 @@ export default function config(args, options) {
                 }
             ]
         },
+        externals: {
+            axios: 'axios'
+        },
         output: {
             path: __dirname + "dist/",
             filename: 'mwi-websocket.js',
