@@ -50,6 +50,12 @@ export default class ConnectionWebSocket extends Connection {
     connectingOutgoingMessageBuffer;
 
     /**
+     * Our own Axios instance so we don't interfere/clash with a hosting pages interceptors
+     * @type {AxiosInstance|null}
+     */
+    axiosInstance = null;
+
+    /**
      * @param {Core} core
      * @param {object} options
      */
@@ -58,13 +64,14 @@ export default class ConnectionWebSocket extends Connection {
 
         if (!options.websocketUrl || !options.authenticationUrl) throw "Missing mandatory options";
 
+        this.axiosInstance = axios.create();
+
         // Calculate where we're connecting to
         this.websocketUrl = options.websocketUrl;
         this.authenticationUrl = options.authenticationUrl;
 
         // Add parameters to Url
         this.websocketUrl += '?protocolVersion=' + this.protocolVersion;
-
     }
 
     clearConnectionTimeoutIfSet = () => {
@@ -175,7 +182,7 @@ export default class ConnectionWebSocket extends Connection {
         //Step 1 - we need to get an authentication token from the webpage
         let websocketToken;
         this.core.logDebug("Requesting authentication token from webpage");
-        axios.get(this.authenticationUrl)
+        this.axiosInstance.get(this.authenticationUrl)
             .then((response) => {
                 websocketToken = response.data;
                 //Step 2 - connect to the websocket and throw the token at it
