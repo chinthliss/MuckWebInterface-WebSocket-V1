@@ -3,8 +3,8 @@
   "version": "1.0.0",
   "description": "Encapsulates the functionality for a JS client to communication to a MUCK over a WebSocket.",
   "type": "module",
-  "main": "dist/mwi-websocket.js",
-  "module": "dist/mwi-websocket.js",
+  "main": "src/index.js",
+  "module": "src/index.js",
   "author": "Chinthliss",
   "license": "ISC",
   "scripts": {
