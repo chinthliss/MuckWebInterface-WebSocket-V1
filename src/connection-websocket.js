@@ -202,7 +202,7 @@ export default class ConnectionWebSocket extends Connection {
 
     sendString(stringToSend) {
         if (stringToSend.length > 30000) {
-            this.core.logError("Websocket had to abort sending a strings because it's over 30,000 characters.");
+            this.core.logError("Websocket had to abort sending a string because it's over 30,000 characters.");
             return;
         }
         // Buffer the string if we're still connecting

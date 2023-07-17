@@ -166,7 +166,7 @@ export default class Core {
         let newChannel = new Channel(channelName, this);
         this.channels[channelName] = newChannel;
         //Only send join request if we have a connection, otherwise we'll join multiple as part of the initial connection
-        if (this.descr) this.sendSystemMessage('joinChannels', channelName);
+        if (this.connectionStatus !== Core.connectionStates.connected) this.sendSystemMessage('joinChannels', channelName);
         return newChannel.interface;
     };
 
@@ -409,7 +409,7 @@ export default class Core {
         let context = globalThis;
 
         // Change/override environment if required
-        if (typeof process !== 'undefined' && process?.env?.NODE_ENV) this.environment = process.env.NODE_ENV;
+        if (typeof process !== 'undefined' && process?.env?.NODE_ENV) this.environment = process.env.NODE_ENV.toString();
         if (options.environment) this.environment = options.environment;
 
         // Figure out whether we have local storage (And load debug option if so)
