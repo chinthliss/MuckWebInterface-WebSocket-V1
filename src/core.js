@@ -166,7 +166,7 @@ export default class Core {
         let newChannel = new Channel(channelName, this);
         this.channels[channelName] = newChannel;
         //Only send join request if we have a connection, otherwise we'll join multiple as part of the initial connection
-        if (this.connectionStatus !== Core.connectionStates.connected) this.sendSystemMessage('joinChannels', channelName);
+        if (this.connectionStatus === Core.connectionStates.connected) this.sendSystemMessage('joinChannels', channelName);
         return newChannel.interface;
     };
 
