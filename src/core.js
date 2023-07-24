@@ -189,11 +189,13 @@ export default class Core {
     }
 
     /**
-     *
+     * Registers a new callback that'll be informed of changes to the connection status.
+     * The passed callback will immediately be called with the present status too.
      * @param {function} callback
      */
     onStatusChanged(callback) {
         this.statusChangedHandlers.push(callback);
+        callback(this.connectionStatus);
     }
 
     /**

@@ -16,7 +16,7 @@ i
 MuckWeb Interface (MWI) - Websockets
 https://github.com/chinthliss/MuckWebInterface-WebSocket
 This is the program to host the websocket used by the MWI webpage framework. It is NOT the websocket used by the direct connect client.
-The github project contains the full documentation. This program only contains relavant notes from the muck side.
+The github project contains the full documentation. This program only contains relevant notes from the muck side.
 
 Assumes the muck takes time to re-use descrs, in particular that their is sufficient time to see a descr is disconnected before it is re-used.
 
